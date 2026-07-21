@@ -1,7 +1,11 @@
 #include <chrono>
 #include <filesystem>
+#include <optional>
+#include <algorithm>
+#include <cwctype>
 
 #include <windows.h>
+#include <DbgHelp.h>
 #include <ShlObj.h>
 
 #include <spdlog/sinks/basic_file_sink.h>
@@ -37,6 +41,62 @@
 
 namespace fs = std::filesystem;
 using namespace std::literals;
+
+namespace {
+bool is_the_outer_worlds2_executable() {
+    static const bool result = []() {
+        const auto exe_path = utility::get_module_pathw(utility::get_executable());
+        if (!exe_path.has_value()) {
+            return false;
+        }
+
+        auto filename = fs::path(*exe_path).filename().wstring();
+        std::transform(filename.begin(), filename.end(), filename.begin(), [](wchar_t ch) {
+            return static_cast<wchar_t>(std::towlower(static_cast<wint_t>(ch)));
+        });
+        return filename == L"theouterworlds2-win64-shipping.exe";
+    }();
+
+    return result;
+}
+
+bool write_tow2_title_hang_dump() {
+    const auto path = Framework::get_persistent_dir("tow2_title_hang.dmp");
+    spdlog::warn("[HangDump] Writing in-process TOW2 title hang dump to {}", path.string());
+
+    const auto file = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE) {
+        spdlog::error("[HangDump] CreateFileW failed: {}", GetLastError());
+        return false;
+    }
+
+    const auto dbghelp = LoadLibraryW(L"dbghelp.dll");
+    if (dbghelp == nullptr) {
+        spdlog::error("[HangDump] LoadLibraryW(dbghelp.dll) failed: {}", GetLastError());
+        CloseHandle(file);
+        return false;
+    }
+
+    using MiniDumpWriteDumpFn = BOOL(WINAPI*)(HANDLE, DWORD, HANDLE, MINIDUMP_TYPE,
+        const MINIDUMP_EXCEPTION_INFORMATION*, const MINIDUMP_USER_STREAM_INFORMATION*, const MINIDUMP_CALLBACK_INFORMATION*);
+    const auto write_dump = reinterpret_cast<MiniDumpWriteDumpFn>(GetProcAddress(dbghelp, "MiniDumpWriteDump"));
+    const auto dump_type = static_cast<MINIDUMP_TYPE>(MiniDumpNormal | MiniDumpWithThreadInfo | MiniDumpWithUnloadedModules);
+    const auto succeeded = write_dump != nullptr && write_dump(
+        GetCurrentProcess(), GetCurrentProcessId(), file, dump_type, nullptr, nullptr, nullptr);
+    const auto error = succeeded ? ERROR_SUCCESS : GetLastError();
+
+    FreeLibrary(dbghelp);
+    CloseHandle(file);
+
+    if (succeeded) {
+        spdlog::warn("[HangDump] Completed {}", path.string());
+    } else {
+        spdlog::error("[HangDump] MiniDumpWriteDump failed: {}", error);
+    }
+
+    return succeeded;
+}
+}
 
 std::unique_ptr<Framework> g_framework{};
 
@@ -156,6 +216,30 @@ void Framework::hook_monitor() {
         || (renderer_type == Framework::RendererType::D3D11 && d3d11 != nullptr && !d3d11->is_inside_present()) 
         || (renderer_type == Framework::RendererType::D3D12 && d3d12 != nullptr && !d3d12->is_inside_present())) 
     {
+        const bool message_hook_intact = m_initialized && m_wnd != 0 && m_windows_message_hook != nullptr && m_windows_message_hook->is_hook_intact();
+        if (is_the_outer_worlds2_executable() && message_hook_intact && now - m_last_present_time >= std::chrono::seconds(5)) {
+            static auto s_last_tow2_rehook_suppression_log = std::chrono::steady_clock::time_point{};
+            static bool s_tow2_title_hang_dump_attempted = false;
+
+            if (!s_tow2_title_hang_dump_attempted) {
+                s_tow2_title_hang_dump_attempted = true;
+                write_tow2_title_hang_dump();
+            }
+
+            if (s_last_tow2_rehook_suppression_log == std::chrono::steady_clock::time_point{} ||
+                now - s_last_tow2_rehook_suppression_log >= std::chrono::seconds(5)) {
+                spdlog::warn("[TOW2] Suppressing D3D rehook because the Windows message hook is still intact");
+                s_last_tow2_rehook_suppression_log = now;
+            }
+
+            m_last_present_time = now;
+            m_last_message_time = now;
+            m_last_chance_time = now;
+            m_has_last_chance = true;
+            m_sent_message = false;
+            return;
+        }
+
         // check if present time is more than 5 seconds ago
         if (now - m_last_present_time >= std::chrono::seconds(5)) {
             if (m_has_last_chance) {

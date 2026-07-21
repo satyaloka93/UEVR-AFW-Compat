@@ -1,6 +1,8 @@
+#include <cwctype>
 #include <fstream>
 
 #include <utility/Logging.hpp>
+#include <utility/Module.hpp>
 #include <utility/String.hpp>
 #include <utility/ScopeGuard.hpp>
 
@@ -38,6 +40,94 @@
 std::shared_ptr<UObjectHook>& UObjectHook::get() {
     static std::shared_ptr<UObjectHook> instance = std::make_shared<UObjectHook>();
     return instance;
+}
+
+static bool is_tow2_uobjecthook_game() {
+    static const bool result = []() {
+        try {
+            const auto path = utility::get_module_pathw(utility::get_executable());
+            if (!path) {
+                return false;
+            }
+
+            std::wstring lowered;
+            lowered.reserve(path->size());
+            for (const auto ch : *path) {
+                lowered.push_back(static_cast<wchar_t>(std::towlower(static_cast<wint_t>(ch))));
+            }
+
+            return lowered.find(L"theouterworlds2-win64-shipping.exe") != std::wstring::npos;
+        } catch (...) {
+            return false;
+        }
+    }();
+
+    return result;
+}
+
+static bool is_guarded_uobjecthook_game() {
+    static const bool result = []() {
+        try {
+            const auto path = utility::get_module_pathw(utility::get_executable());
+            if (!path) {
+                return false;
+            }
+
+            std::wstring lowered;
+            lowered.reserve(path->size());
+            for (const auto ch : *path) {
+                lowered.push_back(static_cast<wchar_t>(std::towlower(static_cast<wint_t>(ch))));
+            }
+
+            return lowered.find(L"avowed-win64-shipping.exe") != std::wstring::npos ||
+                   lowered.find(L"theouterworlds2-win64-shipping.exe") != std::wstring::npos;
+        } catch (...) {
+            return false;
+        }
+    }();
+
+    return result;
+}
+
+static bool is_avowed_uobjecthook_game() {
+    static const bool result = []() {
+        try {
+            const auto path = utility::get_module_pathw(utility::get_executable());
+            if (!path) {
+                return false;
+            }
+
+            std::wstring lowered;
+            lowered.reserve(path->size());
+            for (const auto ch : *path) {
+                lowered.push_back(static_cast<wchar_t>(std::towlower(static_cast<wint_t>(ch))));
+            }
+
+            return lowered.find(L"avowed-win64-shipping.exe") != std::wstring::npos;
+        } catch (...) {
+            return false;
+        }
+    }();
+
+    return result;
+}
+
+// UObjectHook's membership set can briefly outlive an engine component while
+// Avowed replaces equipped-item components in crafting/loadout UI. Validate
+// the live virtual-dispatch surface before any attachment ProcessEvent call.
+static bool has_module_backed_uobject_vtable(sdk::UObjectBase* object) {
+    if (object == nullptr || IsBadReadPtr(object, sizeof(void*))) {
+        return false;
+    }
+
+    const auto vtable = *(void***)object;
+    if (vtable == nullptr || IsBadReadPtr(vtable, sizeof(void*)) || !utility::get_module_within(vtable).has_value()) {
+        return false;
+    }
+
+    const auto first_function = vtable[0];
+    return first_function != nullptr && !IsBadReadPtr(first_function, sizeof(void*)) &&
+           utility::get_module_within(first_function).has_value();
 }
 
 UObjectHook::MotionControllerState::~MotionControllerState() {
@@ -127,8 +217,8 @@ void UObjectHook::hook() {
         if (uobjectarray != nullptr) {
             for (auto i = 0; i < uobjectarray->get_object_count(); ++i) {
                 auto object = uobjectarray->get_object(i);
-                if (object == nullptr || object->object == nullptr) continue;
-                add_new_object(object->object);
+                if (object == nullptr || object->get_object() == nullptr) continue;
+                add_new_object(object->get_object());
             }
             SPDLOG_INFO("[UObjectHook] Dumper mode: added {} existing objects", m_objects.size());
         }
@@ -174,11 +264,11 @@ void UObjectHook::hook() {
     for (auto i = 0; i < uobjectarray->get_object_count(); ++i) {
         auto object = uobjectarray->get_object(i);
 
-        if (object == nullptr || object->object == nullptr) {
+        if (object == nullptr || object->get_object() == nullptr) {
             continue;
         }
 
-        add_new_object(object->object);
+        add_new_object(object->get_object());
     }
 
     SPDLOG_INFO("[UObjectHook] Added {} existing objects", m_objects.size());
@@ -214,8 +304,8 @@ void UObjectHook::hook_process_event() {
     for (auto i = 0; i < uobjectarray->get_object_count(); ++i) {
         const auto object = uobjectarray->get_object(i);
 
-        if (object != nullptr && object->object != nullptr) {
-            first_obj = (sdk::UObject*)object->object;
+        if (object != nullptr && object->get_object() != nullptr) {
+            first_obj = (sdk::UObject*)object->get_object();
             break;
         }
     }
@@ -947,12 +1037,27 @@ void UObjectHook::tick_attachments(Rotator<float>* view_rotation, const float wo
     }
 
     for (auto& it : comps) {
+        if (it.second == nullptr) {
+            continue;
+        }
+
         if (!is_using_controllers && it.second->hand != 2) {
             continue;
         }
 
         auto comp = it.first;
-        if (!this->exists(comp) || it.second == nullptr) {
+        if (!this->exists(comp)) {
+            continue;
+        }
+
+        if (is_avowed_uobjecthook_game() && !has_module_backed_uobject_vtable(comp)) {
+            SPDLOG_WARNING_EVERY_N_SEC(2, "[Avowed] Detaching stale motion-controller component before virtual dispatch: {:x}", (uintptr_t)comp);
+
+            std::unique_lock lock{m_mutex};
+            const auto live_it = m_motion_controller_attached_components.find(comp);
+            if (live_it != m_motion_controller_attached_components.end() && live_it->second == it.second) {
+                m_motion_controller_attached_components.erase(live_it);
+            }
             continue;
         }
         
@@ -1109,7 +1214,7 @@ void UObjectHook::tick_attachments(Rotator<float>* view_rotation, const float wo
 
         if (!state.permanent) {
             GameThreadWorker::get().enqueue([this, comp, orig_position, orig_rotation]() {
-                if (!this->exists(comp)) {
+                if (!this->exists(comp) || (is_avowed_uobjecthook_game() && !has_module_backed_uobject_vtable(comp))) {
                     return;
                 }
 
@@ -4111,25 +4216,131 @@ void* UObjectHook::add_object(void* rcx, void* rdx, void* r8, void* r9, void* st
     auto result = hook->m_add_object_hook.unsafe_call<void*>(rcx, rdx, r8, r9, stack1, stack2, stack3, stack4);
 
     {
-        static bool is_rcx = [&]() {
-            if (!IsBadReadPtr(rcx, sizeof(void*)) && 
-                !IsBadReadPtr(*(void**)rcx, sizeof(void*)) &&
-                !IsBadReadPtr(**(void***)rcx, sizeof(void*))) 
-            {
-                SPDLOG_INFO("[UObjectHook] RCX is UObjectBase*");
-                return true;
-            } else {
-                SPDLOG_INFO("[UObjectHook] RDX is UObjectBase*");
-                return false;
-            }
-        }();
-
         sdk::UObjectBase* obj = nullptr;
 
-        if (is_rcx) {
-            obj = (sdk::UObjectBase*)rcx;
+        if (is_guarded_uobjecthook_game()) {
+            auto is_valid_uobject = [](sdk::UObjectBase* candidate) -> bool {
+                const auto object_array = sdk::FUObjectArray::get();
+                if (object_array == nullptr) {
+                    return false;
+                }
+
+                const auto index_offset = sdk::UObjectBase::get_internal_index_offset();
+                const auto is_array_backed_object = [&](sdk::UObjectBase* object) -> bool {
+                    if (object == nullptr || IsBadReadPtr(object, sizeof(void*)) ||
+                        IsBadReadPtr((void*)((uintptr_t)object + index_offset), sizeof(uint32_t))) {
+                        return false;
+                    }
+
+                    const auto vtable = *(void**)object;
+                    if (vtable == nullptr || IsBadReadPtr(vtable, sizeof(void*))) {
+                        return false;
+                    }
+
+                    const auto index = *(uint32_t*)((uintptr_t)object + index_offset);
+                    if (index >= (uint32_t)object_array->get_object_count()) {
+                        return false;
+                    }
+
+                    const auto item = object_array->get_object((int32_t)index);
+                    return item != nullptr && item->get_object() == object;
+                };
+
+                if (!is_array_backed_object(candidate)) {
+                    return false;
+                }
+
+                const auto candidate_class = candidate->get_class();
+                if (candidate_class == nullptr || IsBadReadPtr(candidate_class, sizeof(void*))) {
+                    return false;
+                }
+
+                const auto class_vtable = *(void**)candidate_class;
+                if (class_vtable == nullptr || IsBadReadPtr(class_vtable, sizeof(void*))) {
+                    return false;
+                }
+
+                // Preserve Avowed's already validated guard exactly. TOW2 alone needs
+                // the stronger hierarchy check because its AddObject argument layout
+                // changes between calls: the old one-time RCX/RDX guess admitted an
+                // executable-data pointer and the game thread faulted while traversing
+                // its fake class hierarchy. Do not enable a fallback object scan.
+                if (!is_tow2_uobjecthook_game()) {
+                    return true;
+                }
+
+                auto klass = candidate_class;
+                for (uint32_t depth = 0; klass != nullptr && depth < 128; ++depth) {
+                    if (!is_array_backed_object((sdk::UObjectBase*)klass) || IsBadReadPtr(klass, 0x80)) {
+                        return false;
+                    }
+
+                    const auto next = klass->get_super_struct();
+                    if (next == klass) {
+                        return false;
+                    }
+
+                    klass = (sdk::UClass*)next;
+                    if (klass == nullptr) {
+                        return true;
+                    }
+                }
+
+                return false;
+            };
+
+            struct Candidate {
+                const char* name;
+                sdk::UObjectBase* object;
+            };
+
+            const Candidate candidates[] = {
+                {"RET", (sdk::UObjectBase*)result},
+                {"RCX", (sdk::UObjectBase*)rcx},
+                {"RDX", (sdk::UObjectBase*)rdx},
+                {"R8", (sdk::UObjectBase*)r8},
+                {"R9", (sdk::UObjectBase*)r9},
+                {"stack1", (sdk::UObjectBase*)stack1},
+                {"stack2", (sdk::UObjectBase*)stack2},
+                {"stack3", (sdk::UObjectBase*)stack3},
+                {"stack4", (sdk::UObjectBase*)stack4},
+            };
+
+            static std::atomic<uint32_t> logged_candidate_mask{0};
+
+            for (size_t i = 0; i < std::size(candidates); ++i) {
+                if (!is_valid_uobject(candidates[i].object)) {
+                    continue;
+                }
+
+                obj = candidates[i].object;
+                const auto bit = 1u << i;
+                const auto previous_mask = logged_candidate_mask.fetch_or(bit, std::memory_order_relaxed);
+                if ((previous_mask & bit) == 0) {
+                    SPDLOG_INFO("[UObjectHook] Guarded AddObject discovered {} as FUObjectArray-backed UObjectBase*", candidates[i].name);
+                }
+                break;
+            }
+
+            if (obj == nullptr) {
+                SPDLOG_WARNING_EVERY_N_SEC(2, "[UObjectHook] Skipping AddObject call with no validated FUObjectArray-backed candidate");
+                return result;
+            }
         } else {
-            obj = (sdk::UObjectBase*)rdx;
+            static bool is_rcx = [&]() {
+                if (!IsBadReadPtr(rcx, sizeof(void*)) &&
+                    !IsBadReadPtr(*(void**)rcx, sizeof(void*)) &&
+                    !IsBadReadPtr(**(void***)rcx, sizeof(void*)))
+                {
+                    SPDLOG_INFO("[UObjectHook] RCX is UObjectBase*");
+                    return true;
+                }
+
+                SPDLOG_INFO("[UObjectHook] RDX is UObjectBase*");
+                return false;
+            }();
+
+            obj = is_rcx ? (sdk::UObjectBase*)rcx : (sdk::UObjectBase*)rdx;
         }
 
         ++hook->m_debug.constructor_calls;

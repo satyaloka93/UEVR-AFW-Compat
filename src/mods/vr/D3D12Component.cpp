@@ -1,6 +1,13 @@
 #include <d3dcompiler.h>
 
+#include <algorithm>
+#include <chrono>
+#include <cwctype>
+#include <filesystem>
+#include <optional>
+
 #include <openvr.h>
+#include <utility/Module.hpp>
 #include <utility/String.hpp>
 #include <utility/ScopeGuard.hpp>
 #include <utility/Logging.hpp>
@@ -19,6 +26,25 @@
 #include "D3D12Component.hpp"
 
 //#define AFR_DEPTH_TEMP_DISABLED
+
+namespace {
+bool is_the_outer_worlds2_executable() {
+    static const bool result = []() {
+        const auto exe_path = utility::get_module_pathw(utility::get_executable());
+        if (!exe_path.has_value()) {
+            return false;
+        }
+
+        auto filename = std::filesystem::path(*exe_path).filename().wstring();
+        std::transform(filename.begin(), filename.end(), filename.begin(), [](wchar_t ch) {
+            return static_cast<wchar_t>(std::towlower(static_cast<wint_t>(ch)));
+        });
+        return filename == L"theouterworlds2-win64-shipping.exe";
+    }();
+
+    return result;
+}
+}
 
 constexpr auto ENGINE_SRC_DEPTH = D3D12_RESOURCE_STATE_DEPTH_READ | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
 constexpr auto ENGINE_SRC_COLOR = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
@@ -66,6 +92,11 @@ vr::EVRCompositorError D3D12Component::on_frame(VR* vr) {
         backbuffer = real_backbuffer;
     }
 
+    if (backbuffer == nullptr && is_the_outer_worlds2_executable()) {
+        SPDLOG_INFO_EVERY_N_SEC(1, "[TOW2 D3D12] Fake stereo render target is null on_frame; falling back to real backbuffer");
+        backbuffer = real_backbuffer;
+    }
+
     if (backbuffer == nullptr) {
         SPDLOG_ERROR_EVERY_N_SEC(1, "[VR] Failed to get back buffer.");
         return vr::VRCompositorError_None;
@@ -83,6 +114,7 @@ vr::EVRCompositorError D3D12Component::on_frame(VR* vr) {
     const auto is_afr = !is_same_frame && vr->is_using_afr();
     const auto is_left_eye_frame = is_afr && vr->m_render_frame_count % 2 == vr->m_left_eye_interval;
     const auto is_right_eye_frame = !is_afr || vr->m_render_frame_count % 2 == vr->m_right_eye_interval;
+    const auto frame_count = vr->m_render_frame_count;
 
     // Sometimes this can happen if pipeline execution does not go exactly as planned
     // so we need to resynchronized or begin the frame again.
@@ -90,10 +122,27 @@ vr::EVRCompositorError D3D12Component::on_frame(VR* vr) {
         runtime->fix_frame();
     }
 
+    // TOW2's post-update menu path can reach D3D12 copying before the normal
+    // OpenXR begin-frame point. Prepare exactly one valid frame before any copy.
+    if (is_the_outer_worlds2_executable() && runtime->is_openxr() && vr->m_openxr->ready() && !vr->m_openxr->frame_began) {
+        if (!vr->m_openxr->frame_synced) {
+            SPDLOG_INFO_EVERY_N_SEC(1, "[TOW2 D3D12] Synchronizing OpenXR frame before D3D12 copy path");
+            vr->m_openxr->synchronize_frame(frame_count);
+        }
+
+        if (!vr->m_openxr->got_first_poses) {
+            SPDLOG_INFO_EVERY_N_SEC(1, "[TOW2 D3D12] Updating OpenXR poses before D3D12 copy path");
+            vr->m_openxr->update_poses(false, frame_count);
+        }
+
+        if (vr->m_openxr->frame_synced && vr->m_openxr->got_first_poses) {
+            SPDLOG_INFO_EVERY_N_SEC(1, "[TOW2 D3D12] Beginning OpenXR frame before D3D12 copy path");
+            vr->m_openxr->begin_frame();
+        }
+    }
+
     const auto& ffsr = VR::get()->m_fake_stereo_hook;
     const auto ui_target = ffsr->get_render_target_manager()->get_ui_target();
-
-    const auto frame_count = vr->m_render_frame_count;
 
     if (m_game_tex.texture.Get() == nullptr && backbuffer.Get() == real_backbuffer.Get()) {
         spdlog::info("[VR] Setting up game texture as copy of backbuffer");
@@ -198,20 +247,33 @@ vr::EVRCompositorError D3D12Component::on_frame(VR* vr) {
         const auto idx = swapchain->GetCurrentBackBufferIndex() % m_game_tex_commands.size();
         auto& command_ctx = m_game_tex_commands[idx];
         if (command_ctx.cmd_list != nullptr) {
-            command_ctx.wait(INFINITE);
-            float clear_color[] = { 0.0f, 0.0f, 0.0f, 0.0f };
-            command_ctx.clear_rtv(m_game_tex, (float*)&clear_color, D3D12_RESOURCE_STATE_RENDER_TARGET);
-            command_ctx.copy(real_backbuffer.Get(), m_backbuffer_copy.texture.Get(), D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
-            //m_game_tex_commands[idx].copy(backbuffer.Get(), m_game_tex.texture.Get(), D3D12_RESOURCE_STATE_PRESENT, ENGINE_SRC_COLOR);
-            d3d12::render_srv_to_rtv(
-                m_game_batch.get(),
-                command_ctx.cmd_list.Get(),
-                m_backbuffer_copy,
-                m_game_tex,
-                D3D12_RESOURCE_STATE_RENDER_TARGET,
-                D3D12_RESOURCE_STATE_RENDER_TARGET
-            );
-            command_ctx.execute();
+            bool can_record_backbuffer_copy = true;
+
+            if (is_the_outer_worlds2_executable() && command_ctx.waiting_for_fence) {
+                command_ctx.wait(0);
+                if (command_ctx.waiting_for_fence) {
+                    SPDLOG_WARNING_EVERY_N_SEC(1, "[TOW2 D3D12] Backbuffer copy command context is still busy; reusing previous game texture to avoid Present-thread stall");
+                    can_record_backbuffer_copy = false;
+                }
+            } else {
+                command_ctx.wait(INFINITE);
+            }
+
+            if (can_record_backbuffer_copy) {
+                float clear_color[] = { 0.0f, 0.0f, 0.0f, 0.0f };
+                command_ctx.clear_rtv(m_game_tex, (float*)&clear_color, D3D12_RESOURCE_STATE_RENDER_TARGET);
+                command_ctx.copy(real_backbuffer.Get(), m_backbuffer_copy.texture.Get(), D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
+                //m_game_tex_commands[idx].copy(backbuffer.Get(), m_game_tex.texture.Get(), D3D12_RESOURCE_STATE_PRESENT, ENGINE_SRC_COLOR);
+                d3d12::render_srv_to_rtv(
+                    m_game_batch.get(),
+                    command_ctx.cmd_list.Get(),
+                    m_backbuffer_copy,
+                    m_game_tex,
+                    D3D12_RESOURCE_STATE_RENDER_TARGET,
+                    D3D12_RESOURCE_STATE_RENDER_TARGET
+                );
+                command_ctx.execute();
+            }
         }
 
         backbuffer = m_game_tex.texture;
@@ -461,10 +523,15 @@ vr::EVRCompositorError D3D12Component::on_frame(VR* vr) {
     auto eyeFrameBuffer = m_eyeFrameBuffers.eyeFrameBuffers[nEye];
     auto otherEyeFrameBuffer = m_eyeFrameBuffers.eyeFrameBuffers[nEyeOther];
     FrameWarpEvaluateParams params;
-    if ((is_using_afw) && (!eyeFrameBuffer.color.pTexture || !otherEyeFrameBuffer.color.pTexture))
+    if (is_using_afw && (!eyeFrameBuffer.color.pTexture || !otherEyeFrameBuffer.color.pTexture)) {
         force_reset();
+        is_using_afw = false;
+    }
 
-    auto colorDesc = eyeFrameBuffer.color.pTexture->GetDesc();
+    // Keep PDAFW initialized for live selection, but do not allocate textures,
+    // set up descriptors, or submit its command list while AFW is inactive.
+    // PureDark's original unconditional block regressed Avowed Native Stereo.
+    if (is_using_afw) {
     static TextureDesc backbufferDesc[6];
     if (backbufferDesc[backbuffer_index].pTexture != backbuffer.Get()) {
         backbufferDesc[backbuffer_index].pTexture = backbuffer.Get();
@@ -541,7 +608,16 @@ vr::EVRCompositorError D3D12Component::on_frame(VR* vr) {
         params.Debug = vr->m_framewarp_debug->value();
         if (vr->is_ghosting_fix_enabled() && vr->is_fix_object_motion_vector() && vr->is_fix_moving_object_brightness_flickering())
             params.InUEVelocityBuffer = &vr->rawVelocityDesc[nEye];
+
+        const auto evaluate_start = std::chrono::steady_clock::now();
+        if (is_the_outer_worlds2_executable()) {
+            SPDLOG_INFO_EVERY_N_SEC(1, "[TOW2 AFW] EvaluateFrameWarp begin frame={} eye={} mode={}", frame_count, (int)nEye, (int)params.Mode);
+        }
         EvaluateFrameWarp(params);
+        if (is_the_outer_worlds2_executable()) {
+            const auto evaluate_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - evaluate_start).count();
+            SPDLOG_INFO_EVERY_N_SEC(1, "[TOW2 AFW] EvaluateFrameWarp complete frame={} eye={} duration_ms={:.3f}", frame_count, (int)nEye, evaluate_ms);
+        }
     }
 
     if (vr->mDebug3 && vr->is_fix_object_motion_vector() && vr->rawVelocityDesc[nEye].pTexture) {
@@ -560,7 +636,14 @@ vr::EVRCompositorError D3D12Component::on_frame(VR* vr) {
         vr->d3d12Renderer->Blit(cmdList, backbufferDesc[backbuffer_index], vr->rawVelocityDesc[nEye], vp);
     }
 
+    if (is_the_outer_worlds2_executable()) {
+        SPDLOG_INFO_EVERY_N_SEC(1, "[TOW2 AFW] EndCommandList begin frame={} index={}", frame_count, backbuffer_index);
+    }
     vr->d3d12Renderer->EndCommandList(backbuffer_index);
+    if (is_the_outer_worlds2_executable()) {
+        SPDLOG_INFO_EVERY_N_SEC(1, "[TOW2 AFW] EndCommandList complete frame={} index={}", frame_count, backbuffer_index);
+    }
+    }
 
     // #############################
     // #Frame Warp Module End
@@ -856,6 +939,14 @@ vr::EVRCompositorError D3D12Component::on_frame(VR* vr) {
             }
 
             auto result = vr->m_openxr->end_frame(quad_layers, scene_depth_tex.Get() != nullptr);
+
+            if (is_the_outer_worlds2_executable()) {
+                SPDLOG_INFO_EVERY_N_SEC(1, "[TOW2 D3D12] OpenXR end_frame result={} submitted={} frame={} shouldRender={}",
+                    vr->m_openxr->get_result_string(result),
+                    result == XR_SUCCESS,
+                    frame_count,
+                    vr->m_openxr->frame_state.shouldRender == XR_TRUE);
+            }
 
             if (result == XR_ERROR_LAYER_INVALID) {
                 spdlog::info("[VR] Attempting to correct invalid layer");
@@ -1319,8 +1410,16 @@ bool D3D12Component::setup() {
         return false;
     }
 
+    bool using_real_backbuffer_fallback = false;
+
     if (vr->is_extreme_compatibility_mode_enabled()) {
         backbuffer = real_backbuffer;
+    }
+
+    if (backbuffer == nullptr && is_the_outer_worlds2_executable()) {
+        SPDLOG_INFO_EVERY_N_SEC(1, "[TOW2 D3D12] Fake stereo render target is null during setup; falling back to real backbuffer");
+        backbuffer = real_backbuffer;
+        using_real_backbuffer_fallback = true;
     }
 
     if (backbuffer == nullptr) {
@@ -1342,7 +1441,7 @@ bool D3D12Component::setup() {
     backbuffer_desc.Flags &= ~D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE;
     backbuffer_desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
 
-    if (!vr->is_extreme_compatibility_mode_enabled()) {
+    if (!vr->is_extreme_compatibility_mode_enabled() && !using_real_backbuffer_fallback) {
         backbuffer_desc.Width /= 2; // The texture we get from UE is both eyes combined. we will copy the regions later.
     }
 
@@ -1383,7 +1482,8 @@ bool D3D12Component::setup() {
     // #############################
     static uint32_t lastSize[2]{0, 0};
     static DXGI_FORMAT lastFormat = DXGI_FORMAT_UNKNOWN;
-    if ((lastSize[0] != vr->get_hmd_width() || lastSize[1] != vr->get_hmd_height() || lastFormat != backbuffer_desc.Format)) {
+    if (vr->is_using_afw() && vr->d3d12Renderer != nullptr &&
+        (lastSize[0] != vr->get_hmd_width() || lastSize[1] != vr->get_hmd_height() || lastFormat != backbuffer_desc.Format)) {
         FrameWarpInitParams params = {vr->get_hmd_width(), vr->get_hmd_height(), backbuffer_desc.Format};
         spdlog::info("[VR] Before InitFrameWarp");
         m_eyeFrameBuffers = InitFrameWarp(params);
@@ -1451,7 +1551,7 @@ bool D3D12Component::setup() {
         }
     }
 
-    if (!vr->is_extreme_compatibility_mode_enabled()) {
+    if (!vr->is_extreme_compatibility_mode_enabled() && !using_real_backbuffer_fallback) {
         m_backbuffer_size[0] = backbuffer_desc.Width * 2;
     } else {
         m_backbuffer_size[0] = backbuffer_desc.Width;
@@ -1918,6 +2018,9 @@ void D3D12Component::OpenXR::copy(
     XrSwapchainImageAcquireInfo acquire_info{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
 
     uint32_t texture_index{};
+    if (is_the_outer_worlds2_executable()) {
+        SPDLOG_INFO_EVERY_N_SEC(1, "[TOW2 OpenXR Copy] acquire begin swapchain={} frame={}", swapchain_idx, vr->m_render_frame_count);
+    }
     auto result = xrAcquireSwapchainImage(swapchain.handle, &acquire_info, &texture_index);
 
     if (result == XR_ERROR_RUNTIME_FAILURE) {
@@ -1942,12 +2045,34 @@ void D3D12Component::OpenXR::copy(
         //wait_info.timeout = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::seconds(1)).count();
         wait_info.timeout = XR_INFINITE_DURATION;
         result = xrWaitSwapchainImage(swapchain.handle, &wait_info);
+        if (is_the_outer_worlds2_executable()) {
+            SPDLOG_INFO_EVERY_N_SEC(1, "[TOW2 OpenXR Copy] wait complete swapchain={} image={} result={} frame={}",
+                swapchain_idx, texture_index, vr->m_openxr->get_result_string(result), vr->m_render_frame_count);
+        }
 
         if (result != XR_SUCCESS) {
             spdlog::error("[VR] xrWaitSwapchainImage failed: {}", vr->m_openxr->get_result_string(result));
         } else {
             auto& texture_ctx = ctx.texture_contexts[texture_index];
-            texture_ctx->commands.wait(INFINITE);
+
+            if (is_the_outer_worlds2_executable() && texture_ctx->commands.waiting_for_fence) {
+                texture_ctx->commands.wait(0);
+
+                if (texture_ctx->commands.waiting_for_fence) {
+                    SPDLOG_WARNING_EVERY_N_SEC(1, "[TOW2 D3D12] OpenXR swapchain {} texture command context is still busy; skipping this copy to avoid Present-thread stall", swapchain_idx);
+
+                    XrSwapchainImageReleaseInfo release_info{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
+                    const auto release_result = xrReleaseSwapchainImage(swapchain.handle, &release_info);
+                    if (release_result != XR_SUCCESS) {
+                        spdlog::error("[VR] xrReleaseSwapchainImage after busy command context failed: {}", vr->m_openxr->get_result_string(release_result));
+                    }
+
+                    ctx.num_textures_acquired--;
+                    return;
+                }
+            } else {
+                texture_ctx->commands.wait(INFINITE);
+            }
 
             if (pre_commands) {
                 (*pre_commands)(texture_ctx->commands, ctx.textures[texture_index].texture);
@@ -1981,6 +2106,10 @@ void D3D12Component::OpenXR::copy(
             }
 
             texture_ctx->commands.execute();
+            if (is_the_outer_worlds2_executable()) {
+                SPDLOG_INFO_EVERY_N_SEC(1, "[TOW2 OpenXR Copy] command execute complete swapchain={} image={} frame={}",
+                    swapchain_idx, texture_index, vr->m_render_frame_count);
+            }
 
             XrSwapchainImageReleaseInfo release_info{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
             auto result = xrReleaseSwapchainImage(swapchain.handle, &release_info);

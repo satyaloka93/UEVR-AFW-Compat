@@ -1,6 +1,10 @@
 #define NOMINMAX
 
+#include <algorithm>
+#include <cwctype>
+#include <filesystem>
 #include <fstream>
+#include <optional>
 
 #include <windows.h>
 #include <dbt.h>
@@ -54,7 +58,9 @@ static std::thread::id RHIThreadID = {};
 NVSDK_NGX_Result hk_NVSDK_NGX_D3D12_EvaluateFeature(
     ID3D12GraphicsCommandList* InCmdList, const NVSDK_NGX_Handle* InFeatureHandle, NVSDK_NGX_Parameter* InParameters, void* InCallback) {
     const auto& vr = VR::get();
-    if (!vr->vrNoneDLSSHandleMap.contains((NVSDK_NGX_Handle*)InFeatureHandle)) {
+    // The NGX detour remains installed so AFW can be selected live, but its
+    // resource discovery/copy path must be dormant outside AFW.
+    if (vr->is_using_afw() && !vr->vrNoneDLSSHandleMap.contains((NVSDK_NGX_Handle*)InFeatureHandle)) {
         ID3D12Resource* color;
         ID3D12Resource* depth;
         ID3D12Resource* motionVectors;
@@ -82,7 +88,7 @@ NVSDK_NGX_Result hk_NVSDK_NGX_D3D12_EvaluateFeature(
             auto mvDesc = motionVectors->GetDesc();
             auto outputDesc = output->GetDesc();
             vr->mvScale[0] = mvScale[0] * outputDesc.Width / mvDesc.Width;
-            vr->mvScale[1] = mvScale[0] * outputDesc.Height / mvDesc.Height;
+            vr->mvScale[1] = mvScale[1] * outputDesc.Height / mvDesc.Height;
         }
         if (depth) {
             auto depthDesc = depth->GetDesc();
@@ -276,7 +282,9 @@ void WINAPI hk_ID3D12GraphicsCommandList_ClearDepthStencilView(ID3D12GraphicsCom
 
     const auto& vr = VR::get();
 
-    if (ClearFlags != D3D12_CLEAR_FLAG_STENCIL || !vr->is_hmd_active())
+    // ClearDepthStencilView is a hot engine path. Do not inspect or copy depth
+    // resources unless AFW is actually producing warped frames.
+    if (ClearFlags != D3D12_CLEAR_FLAG_STENCIL || !vr->is_hmd_active() || !vr->is_using_afw())
         return;
 
     auto render_frame_count = vr->get_render_frame_count();
@@ -319,6 +327,25 @@ uintptr_t hookVtable(void* target, int index, void* detours) {
     auto origFunc = pVTable[index];
     pVTable[index] = (uintptr_t)detours;
     return origFunc;
+}
+
+namespace {
+bool is_the_outer_worlds2_executable_vr() {
+    static const bool result = []() {
+        const auto exe_path = utility::get_module_pathw(utility::get_executable());
+        if (!exe_path.has_value()) {
+            return false;
+        }
+
+        auto filename = std::filesystem::path(*exe_path).filename().wstring();
+        std::transform(filename.begin(), filename.end(), filename.begin(), [](wchar_t ch) {
+            return static_cast<wchar_t>(std::towlower(static_cast<wint_t>(ch)));
+        });
+        return filename == L"theouterworlds2-win64-shipping.exe";
+    }();
+
+    return result;
+}
 }
 
 std::shared_ptr<VR>& VR::get() {
@@ -1137,6 +1164,7 @@ void VR::on_xinput_get_state(uint32_t* retval, uint32_t user_index, XINPUT_STATE
     const auto left_joystick = get_left_joystick();
     const auto right_joystick = get_right_joystick();
     const auto wants_swap = m_swap_controllers->value();
+    const auto is_steamvr_psvr2_openxr = runtime == m_openxr.get() && m_openxr->is_steamvr_psvr2_system;
 
     runtime->handle_pause_select(is_action_active_any_joystick(m_action_system_button));
     do_pause_select();
@@ -1274,12 +1302,29 @@ void VR::on_xinput_get_state(uint32_t* retval, uint32_t user_index, XINPUT_STATE
 
         DPadMethod dpad_method = get_dpad_method();
         if (dpad_method == DPadMethod::RIGHT_TOUCH) {
-            thumbrest_check = is_action_active_any_joystick(m_action_thumbrest_touch_right);
-            button_touch_inactive = !is_action_active_any_joystick(m_action_a_button_touch_right) && !is_action_active_any_joystick(m_action_b_button_touch_right);
+            if (is_steamvr_psvr2_openxr) {
+                thumbrest_check = is_action_active_any_joystick(m_action_b_button_touch_right)
+                    || is_action_active_any_joystick(m_action_thumbrest_touch_right);
+                button_touch_inactive = true;
+            } else {
+                thumbrest_check = is_action_active_any_joystick(m_action_thumbrest_touch_right);
+                button_touch_inactive = !is_action_active_any_joystick(m_action_a_button_touch_right)
+                    && !is_action_active_any_joystick(m_action_b_button_touch_right);
+            }
         }
         if (dpad_method == DPadMethod::LEFT_TOUCH) {
-            thumbrest_check = is_action_active_any_joystick(m_action_thumbrest_touch_left);
-            button_touch_inactive = !is_action_active_any_joystick(m_action_a_button_touch_left) && !is_action_active_any_joystick(m_action_b_button_touch_left);
+            if (is_steamvr_psvr2_openxr) {
+                // PSVR2 Triangle touch is the left-thumbrest-style modifier. SteamVR can
+                // report multiple generic face-button touch channels for the same touch,
+                // so the Oculus-oriented A/B inactivity gate is invalid on this path.
+                thumbrest_check = is_action_active_any_joystick(m_action_b_button_touch_left)
+                    || is_action_active_any_joystick(m_action_thumbrest_touch_left);
+                button_touch_inactive = true;
+            } else {
+                thumbrest_check = is_action_active_any_joystick(m_action_thumbrest_touch_left);
+                button_touch_inactive = !is_action_active_any_joystick(m_action_a_button_touch_left)
+                    && !is_action_active_any_joystick(m_action_b_button_touch_left);
+            }
         }
 
         const auto dpad_active = (button_touch_inactive && thumbrest_check) || dpad_method == DPadMethod::LEFT_JOYSTICK || dpad_method == DPadMethod::RIGHT_JOYSTICK;
@@ -1360,7 +1405,11 @@ void VR::on_xinput_get_state(uint32_t* retval, uint32_t user_index, XINPUT_STATE
             else {
                 stick_axis = right_joystick_axis.x;
                 const auto& thumbrest_touch_left = !wants_swap ? m_action_thumbrest_touch_left : m_action_thumbrest_touch_right;
-                if (glm::abs(stick_axis) >= snapturn_deadzone && !(dpad_method == DPadMethod::LEFT_TOUCH && is_action_active_any_joystick(thumbrest_touch_left))) {
+                const auto& thumbrest_touch_left_psvr2_fallback = !wants_swap ? m_action_b_button_touch_left : m_action_b_button_touch_right;
+                const auto left_touch_modifier_active = is_action_active_any_joystick(thumbrest_touch_left)
+                    || (is_steamvr_psvr2_openxr && is_action_active_any_joystick(thumbrest_touch_left_psvr2_fallback));
+
+                if (glm::abs(stick_axis) >= snapturn_deadzone && !(dpad_method == DPadMethod::LEFT_TOUCH && left_touch_modifier_active)) {
                     if (stick_axis < 0) {
                         m_snapturn_left = true;
                     }
@@ -1886,40 +1935,46 @@ void VR::update_hmd_state(bool from_view_extensions, uint32_t frame_count) {
     std::scoped_lock _{m_reinitialize_mtx};
 
     auto runtime = get_runtime();
-    if (m_uncap_framerate->value()) {
-        sdk::set_cvar_data_float(L"Engine", L"t.MaxFPS", 500.0f);
-    }
+    const auto skip_unsafe_cvars = is_the_outer_worlds2_executable_vr();
 
-    // Allows games running in HDR mode to not have a black UI overlay
-    if (m_disable_hdr_compositing->value()) {
-        sdk::set_cvar_data_int(L"SlateRHIRenderer", L"r.HDR.UI.CompositeMode", 0);
-    }
-
-    if (m_disable_blur_widgets->value()) {
-        if (auto val = sdk::get_cvar_int(L"Slate", L"Slate.AllowBackgroundBlurWidgets"); val && *val != 0) {
-            sdk::set_cvar_int(L"Slate", L"Slate.AllowBackgroundBlurWidgets", 0);
+    if (skip_unsafe_cvars) {
+        SPDLOG_WARN_ONCE("[TOW2] Skipping VR::update_hmd_state CVar writes/queries to avoid post-update CVar scanner stall");
+    } else {
+        if (m_uncap_framerate->value()) {
+            sdk::set_cvar_data_float(L"Engine", L"t.MaxFPS", 500.0f);
         }
-    }
 
-    if (!is_using_afr()) {
-        const auto is_hzbo_frozen_by_cvm = m_cvar_manager != nullptr && m_cvar_manager->is_hzbo_frozen_and_enabled();
+        // Allows games running in HDR mode to not have a black UI overlay
+        if (m_disable_hdr_compositing->value()) {
+            sdk::set_cvar_data_int(L"SlateRHIRenderer", L"r.HDR.UI.CompositeMode", 0);
+        }
 
-        // Forcefully disable r.HZBOcclusion, it doesn't work with native stereo mode (sometimes)
-        // Except when the user sets it to 1 with the CVar Manager, we need to respect that
-        if (m_disable_hzbocclusion->value() && !is_hzbo_frozen_by_cvm) {
-            const auto r_hzb_occlusion_value = sdk::get_cvar_int(L"Renderer", L"r.HZBOcclusion");
-
-            // Only set it once, otherwise we'll be spamming a Set call every frame
-            if (r_hzb_occlusion_value && *r_hzb_occlusion_value != 0) {
-                sdk::set_cvar_int(L"Renderer", L"r.HZBOcclusion", 0);
+        if (m_disable_blur_widgets->value()) {
+            if (auto val = sdk::get_cvar_int(L"Slate", L"Slate.AllowBackgroundBlurWidgets"); val && *val != 0) {
+                sdk::set_cvar_int(L"Slate", L"Slate.AllowBackgroundBlurWidgets", 0);
             }
         }
 
-        if (m_disable_instance_culling->value()) {
-            const auto r_instance_culling_value = sdk::get_cvar_int(L"Renderer", L"r.InstanceCulling.OcclusionCull");
+        if (!is_using_afr()) {
+            const auto is_hzbo_frozen_by_cvm = m_cvar_manager != nullptr && m_cvar_manager->is_hzbo_frozen_and_enabled();
 
-            if (r_instance_culling_value && *r_instance_culling_value != 0) {
-                sdk::set_cvar_int(L"Renderer", L"r.InstanceCulling.OcclusionCull", 0);
+            // Forcefully disable r.HZBOcclusion, it doesn't work with native stereo mode (sometimes)
+            // Except when the user sets it to 1 with the CVar Manager, we need to respect that
+            if (m_disable_hzbocclusion->value() && !is_hzbo_frozen_by_cvm) {
+                const auto r_hzb_occlusion_value = sdk::get_cvar_int(L"Renderer", L"r.HZBOcclusion");
+
+                // Only set it once, otherwise we'll be spamming a Set call every frame
+                if (r_hzb_occlusion_value && *r_hzb_occlusion_value != 0) {
+                    sdk::set_cvar_int(L"Renderer", L"r.HZBOcclusion", 0);
+                }
+            }
+
+            if (m_disable_instance_culling->value()) {
+                const auto r_instance_culling_value = sdk::get_cvar_int(L"Renderer", L"r.InstanceCulling.OcclusionCull");
+
+                if (r_instance_culling_value && *r_instance_culling_value != 0) {
+                    sdk::set_cvar_int(L"Renderer", L"r.InstanceCulling.OcclusionCull", 0);
+                }
             }
         }
     }
@@ -1938,8 +1993,12 @@ void VR::update_hmd_state(bool from_view_extensions, uint32_t frame_count) {
             m_openvr->pose_queue[now_frame] = m_openvr->pose_queue[last_frame];
         }
 
-        // Forcefully disable motion blur because it freaks out with AFR
-        sdk::set_cvar_data_int(L"Engine", L"r.DefaultFeature.MotionBlur", 0);
+        // Forcefully disable motion blur because it freaks out with AFR.
+        // TOW2's reflected CVar path stalls after its game update, so its
+        // user_script remains the only safe place for renderer commands.
+        if (!skip_unsafe_cvars) {
+            sdk::set_cvar_data_int(L"Engine", L"r.DefaultFeature.MotionBlur", 0);
+        }
         if (!is_using_afw())
             return;
     }
@@ -2725,10 +2784,11 @@ void VR::on_present() {
         afw_resolution_change_skip_frames--;
     if (afw_switching_skip_frames > 0)
         afw_switching_skip_frames--;
-    if (is_afw_last_frame ^ (m_rendering_method->value() == RenderingMethod::ALTERNATE_FRAMEWARP)) {
+    const bool afw_active_selection = m_rendering_method->value() == RenderingMethod::ALTERNATE_FRAMEWARP && !is_using_2d_screen();
+    if (is_afw_last_frame ^ afw_active_selection) {
         afw_switching_skip_frames = 90;
     }
-    is_afw_last_frame = (m_rendering_method->value() == RenderingMethod::ALTERNATE_FRAMEWARP);
+    is_afw_last_frame = afw_active_selection;
     afw_since_inject_frame_count++;
 }
 
@@ -3008,6 +3068,13 @@ void VR::on_draw_sidebar_entry(std::string_view name) {
         m_enable_depth->draw("Enable Depth-based Latency Reduction");
         m_load_blueprint_code->draw("Load Blueprint Code");
         m_ghosting_fix->draw("Ghosting Fix");
+        if (m_ghosting_fix->value()) {
+            ImGui::Indent();
+            m_ghosting_fix_bootstrap_view_states->draw("Bootstrap Separate View States");
+            ImGui::TextWrapped(
+                "Uses Joey's bounded bootstrap only when AFW has not learned two stable per-eye scene states.");
+            ImGui::Unindent();
+        }
 
         ImGui::SetNextItemOpen(true, ImGuiCond_::ImGuiCond_Once);
         if (ImGui::TreeNode("Native Stereo Fix")) {
@@ -3694,6 +3761,14 @@ bool VR::is_action_active(vr::VRActionHandle_t action, vr::VRInputValueHandle_t 
         active = data.bActive && data.bState;
     } else if (get_runtime()->is_openxr()) {
         active = m_openxr->is_action_active((XrAction)action, (VRRuntime::Hand)source);
+
+        if (!active && m_openxr->is_steamvr_psvr2_system) {
+            if (source == (vr::VRInputValueHandle_t)VRRuntime::Hand::LEFT && action == m_action_thumbrest_touch_left) {
+                active = m_openxr->is_action_active((XrAction)m_action_b_button_touch_left, VRRuntime::Hand::LEFT);
+            } else if (source == (vr::VRInputValueHandle_t)VRRuntime::Hand::RIGHT && action == m_action_thumbrest_touch_right) {
+                active = m_openxr->is_action_active((XrAction)m_action_b_button_touch_right, VRRuntime::Hand::RIGHT);
+            }
+        }
     }
 
     return active;

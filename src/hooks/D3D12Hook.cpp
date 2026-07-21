@@ -1,6 +1,11 @@
 #include <thread>
 #include <future>
 #include <unordered_set>
+#include <chrono>
+#include <optional>
+#include <filesystem>
+#include <algorithm>
+#include <cwctype>
 
 #include <spdlog/spdlog.h>
 #include <utility/Thread.hpp>
@@ -16,12 +21,57 @@
 
 static D3D12Hook* g_d3d12_hook = nullptr;
 
+namespace {
+bool is_the_outer_worlds2_executable() {
+    static std::optional<bool> cached_result{};
+
+    if (cached_result.has_value()) {
+        return *cached_result;
+    }
+
+    const auto exe_path = utility::get_module_pathw(utility::get_executable());
+    if (!exe_path.has_value()) {
+        cached_result = false;
+        return false;
+    }
+
+    auto filename = std::filesystem::path(*exe_path).filename().wstring();
+    std::transform(filename.begin(), filename.end(), filename.begin(), [](wchar_t ch) {
+        return (wchar_t)::towlower((wint_t)ch);
+    });
+
+    cached_result = filename == L"theouterworlds2-win64-shipping.exe";
+    return *cached_result;
+}
+
+bool is_module_loaded(const char* name) {
+    return GetModuleHandleA(name) != nullptr;
+}
+
+void log_tow2_module_state(const char* stage) {
+    if (!is_the_outer_worlds2_executable()) {
+        return;
+    }
+
+    spdlog::info(
+        "[TOW2 D3D12] {} modules: sl.interposer={} nvngx_dlssg={} nvngx_dlssd={} libxess_fg={} openxr_loader={} openvr_api={}",
+        stage,
+        is_module_loaded("sl.interposer.dll"),
+        is_module_loaded("nvngx_dlssg.dll"),
+        is_module_loaded("nvngx_dlssd.dll"),
+        is_module_loaded("libxess_fg.dll"),
+        is_module_loaded("openxr_loader.dll"),
+        is_module_loaded("openvr_api.dll"));
+}
+} // namespace
+
 D3D12Hook::~D3D12Hook() {
     unhook();
 }
 
 bool D3D12Hook::hook() {
     spdlog::info("Hooking D3D12");
+    log_tow2_module_state("hook_start");
 
     g_d3d12_hook = this;
 
@@ -249,6 +299,8 @@ bool D3D12Hook::hook() {
         spdlog::error("Failed to get type info: unknown exception");
     }
 
+    log_tow2_module_state("after_dummy_swapchain");
+
     spdlog::info("Finding command queue offset");
 
     m_command_queue_offset = 0;
@@ -267,6 +319,9 @@ bool D3D12Hook::hook() {
         if (data == command_queue) {
             m_command_queue_offset = i;
             spdlog::info("Found command queue offset: {:x}", i);
+            if (is_the_outer_worlds2_executable()) {
+                spdlog::info("[TOW2 D3D12] Direct dummy swapchain command queue offset found: swapchain={:x} offset={:x}", (uintptr_t)swap_chain1, i);
+            }
             break;
         }
     }
@@ -340,13 +395,64 @@ bool D3D12Hook::hook() {
         m_present_hook.reset();
         m_present1_hook.reset();
         m_swapchain_hook.reset();
+        m_create_swap_chain_hook.reset();
+        m_create_swap_chain_for_hwnd_hook.reset();
+        m_create_swap_chain_for_core_window_hook.reset();
+        m_create_swap_chain_for_composition_hook.reset();
+        m_extra_present_hooks.clear();
+        m_extra_present1_hooks.clear();
+        m_present_originals.clear();
+        m_present1_originals.clear();
 
         m_is_phase_1 = true;
 
         auto& present_fn = (*(void***)target_swapchain)[8]; // Present
         auto& present1_fn = (*(void***)target_swapchain)[22]; // Present1
+        if (is_the_outer_worlds2_executable()) {
+            spdlog::info(
+                "[TOW2 D3D12] Installing global vtable pointer hooks: target_swapchain={:x} present_slot={:x}->{:x} present1_slot={:x}->{:x} cq_offset={:x} proton={} framegen={}",
+                (uintptr_t)target_swapchain,
+                (uintptr_t)&present_fn,
+                (uintptr_t)present_fn,
+                (uintptr_t)&present1_fn,
+                (uintptr_t)present1_fn,
+                m_command_queue_offset,
+                m_using_proton_swapchain,
+                m_using_frame_generation_swapchain);
+
+            m_present_originals[(uintptr_t)&present_fn] = (uintptr_t)present_fn;
+            m_present1_originals[(uintptr_t)&present1_fn] = (uintptr_t)present1_fn;
+        }
+
         m_present_hook = std::make_unique<PointerHook>(&present_fn, (void*)&D3D12Hook::present);
         m_present1_hook = std::make_unique<PointerHook>(&present1_fn, (void*)&D3D12Hook::present1);
+
+        // These hooks are intentionally TOW2-only. They are the injection
+        // compatibility coverage documented in TOW2_UEVR_WORKLOG.md, not the
+        // baseline AFW lifecycle, VRS, or rendering implementation.
+        if (is_the_outer_worlds2_executable()) {
+            auto& create_swap_chain_fn = (*(void***)factory)[10];
+            auto& create_swap_chain_for_hwnd_fn = (*(void***)factory)[15];
+            auto& create_swap_chain_for_core_window_fn = (*(void***)factory)[16];
+            auto& create_swap_chain_for_composition_fn = (*(void***)factory)[24];
+
+            spdlog::info(
+                "[TOW2 D3D12] Installing DXGI factory swapchain creation hooks: create_slot={:x}->{:x} hwnd_slot={:x}->{:x} core_slot={:x}->{:x} composition_slot={:x}->{:x}",
+                (uintptr_t)&create_swap_chain_fn,
+                (uintptr_t)create_swap_chain_fn,
+                (uintptr_t)&create_swap_chain_for_hwnd_fn,
+                (uintptr_t)create_swap_chain_for_hwnd_fn,
+                (uintptr_t)&create_swap_chain_for_core_window_fn,
+                (uintptr_t)create_swap_chain_for_core_window_fn,
+                (uintptr_t)&create_swap_chain_for_composition_fn,
+                (uintptr_t)create_swap_chain_for_composition_fn);
+
+            m_create_swap_chain_hook = std::make_unique<PointerHook>(&create_swap_chain_fn, (void*)&D3D12Hook::create_swap_chain);
+            m_create_swap_chain_for_hwnd_hook = std::make_unique<PointerHook>(&create_swap_chain_for_hwnd_fn, (void*)&D3D12Hook::create_swap_chain_for_hwnd);
+            m_create_swap_chain_for_core_window_hook = std::make_unique<PointerHook>(&create_swap_chain_for_core_window_fn, (void*)&D3D12Hook::create_swap_chain_for_core_window);
+            m_create_swap_chain_for_composition_hook = std::make_unique<PointerHook>(&create_swap_chain_for_composition_fn, (void*)&D3D12Hook::create_swap_chain_for_composition);
+        }
+
         m_hooked = true;
     } catch (const std::exception& e) {
         spdlog::error("Failed to initialize hooks: {}", e.what());
@@ -380,6 +486,14 @@ bool D3D12Hook::unhook() {
     m_present_hook.reset();
     m_present1_hook.reset();
     m_swapchain_hook.reset();
+    m_create_swap_chain_hook.reset();
+    m_create_swap_chain_for_hwnd_hook.reset();
+    m_create_swap_chain_for_core_window_hook.reset();
+    m_create_swap_chain_for_composition_hook.reset();
+    m_extra_present_hooks.clear();
+    m_extra_present1_hooks.clear();
+    m_present_originals.clear();
+    m_present1_originals.clear();
 
     m_hooked = false;
     m_is_phase_1 = true;
@@ -388,6 +502,46 @@ bool D3D12Hook::unhook() {
 }
 
 thread_local int32_t g_present_depth = 0;
+
+bool D3D12Hook::install_present_hooks_for_swapchain(IDXGISwapChain3* swap_chain, const char* reason) {
+    if (swap_chain == nullptr || !is_the_outer_worlds2_executable()) {
+        return false;
+    }
+
+    std::scoped_lock _{m_dynamic_hook_mtx};
+
+    try {
+        auto& present_fn = (*(void***)swap_chain)[8];
+        auto& present1_fn = (*(void***)swap_chain)[22];
+        const auto present_slot = (uintptr_t)&present_fn;
+        const auto present1_slot = (uintptr_t)&present1_fn;
+        bool installed_any = false;
+
+        if ((uintptr_t)present_fn != (uintptr_t)&D3D12Hook::present && !m_present_originals.contains(present_slot)) {
+            spdlog::info("[TOW2 D3D12] Installing dynamic Present hook: reason={} swapchain={:x} slot={:x}->{:x}",
+                reason, (uintptr_t)swap_chain, present_slot, (uintptr_t)present_fn);
+            m_present_originals[present_slot] = (uintptr_t)present_fn;
+            m_extra_present_hooks.emplace_back(std::make_unique<PointerHook>(&present_fn, (void*)&D3D12Hook::present));
+            installed_any = true;
+        }
+
+        if ((uintptr_t)present1_fn != (uintptr_t)&D3D12Hook::present1 && !m_present1_originals.contains(present1_slot)) {
+            spdlog::info("[TOW2 D3D12] Installing dynamic Present1 hook: reason={} swapchain={:x} slot={:x}->{:x}",
+                reason, (uintptr_t)swap_chain, present1_slot, (uintptr_t)present1_fn);
+            m_present1_originals[present1_slot] = (uintptr_t)present1_fn;
+            m_extra_present1_hooks.emplace_back(std::make_unique<PointerHook>(&present1_fn, (void*)&D3D12Hook::present1));
+            installed_any = true;
+        }
+
+        return installed_any;
+    } catch (const std::exception& e) {
+        spdlog::error("[TOW2 D3D12] Failed to install dynamic swapchain Present hooks: {}", e.what());
+    } catch (...) {
+        spdlog::error("[TOW2 D3D12] Failed to install dynamic swapchain Present hooks: unknown exception");
+    }
+
+    return false;
+}
 
 HRESULT D3D12Hook::present_internal(IDXGISwapChain3* swap_chain, UINT sync_interval, UINT flags, DXGI_PRESENT_PARAMETERS* params, bool present1) {
     auto d3d12 = g_d3d12_hook;
@@ -398,10 +552,69 @@ HRESULT D3D12Hook::present_internal(IDXGISwapChain3* swap_chain, UINT sync_inter
     using Present1Fn = HRESULT(*)(IDXGISwapChain3*, UINT, UINT, DXGI_PRESENT_PARAMETERS*);
     Present1Fn present_fn{nullptr};
 
-    if (!present1) {
-        present_fn = d3d12->m_present_hook->get_original<Present1Fn>();
-    } else {
-        present_fn = d3d12->m_present1_hook->get_original<Present1Fn>();
+    if (is_the_outer_worlds2_executable()) {
+        const auto present_slot = (uintptr_t)&(*(void***)swap_chain)[present1 ? 22 : 8];
+        std::scoped_lock _{d3d12->m_dynamic_hook_mtx};
+        auto& originals = present1 ? d3d12->m_present1_originals : d3d12->m_present_originals;
+        if (const auto it = originals.find(present_slot); it != originals.end()) {
+            present_fn = (Present1Fn)it->second;
+        }
+    }
+
+    if (present_fn == nullptr) {
+        if (!present1) {
+            present_fn = d3d12->m_present_hook->get_original<Present1Fn>();
+        } else {
+            present_fn = d3d12->m_present1_hook->get_original<Present1Fn>();
+        }
+    }
+
+    if (is_the_outer_worlds2_executable()) {
+        static uint64_t s_present_count = 0;
+        static uint64_t s_present1_count = 0;
+        static auto s_last_diag = std::chrono::steady_clock::time_point{};
+        static std::unordered_set<uintptr_t> s_seen_swapchains{};
+
+        present1 ? ++s_present1_count : ++s_present_count;
+
+        const auto now = std::chrono::steady_clock::now();
+        const auto swapchain_key = (uintptr_t)swap_chain;
+        if (s_seen_swapchains.insert(swapchain_key).second) {
+            DXGI_SWAP_CHAIN_DESC desc{};
+            const auto desc_hr = swap_chain->GetDesc(&desc);
+            spdlog::info(
+                "[TOW2 D3D12] First Present on swapchain={:x} hwnd={:x} present1={} desc_hr={:x} buffers={} fmt={} flags={:x} windowed={} output_window={:x}",
+                swapchain_key,
+                (uintptr_t)swapchain_wnd,
+                present1,
+                (uint32_t)desc_hr,
+                desc.BufferCount,
+                (uint32_t)desc.BufferDesc.Format,
+                desc.Flags,
+                desc.Windowed,
+                (uintptr_t)desc.OutputWindow);
+        }
+
+        if (s_last_diag == std::chrono::steady_clock::time_point{} || now - s_last_diag >= std::chrono::seconds(1)) {
+            s_last_diag = now;
+            spdlog::info(
+                "[TOW2 D3D12] Present heartbeat: Present={} Present1={} swapchain={:x} hwnd={:x} phase1={} inside={} device={:x} queue={:x} cq_offset={:x} proton={} framegen={} sync={} flags={:x} original_present={:x}",
+                s_present_count,
+                s_present1_count,
+                swapchain_key,
+                (uintptr_t)swapchain_wnd,
+                d3d12->m_is_phase_1,
+                d3d12->m_inside_present,
+                (uintptr_t)d3d12->m_device,
+                (uintptr_t)d3d12->m_command_queue,
+                d3d12->m_command_queue_offset,
+                d3d12->m_using_proton_swapchain,
+                d3d12->m_using_frame_generation_swapchain,
+                sync_interval,
+                flags,
+                (uintptr_t)present_fn);
+            log_tow2_module_state("present_heartbeat");
+        }
     }
 
     if (d3d12->m_is_phase_1 && WindowFilter::get().is_filtered(swapchain_wnd)) {
@@ -434,6 +647,12 @@ HRESULT D3D12Hook::present_internal(IDXGISwapChain3* swap_chain, UINT sync_inter
         //d3d12->m_swapchain_hook->hook_method(8, (uintptr_t)&D3D12Hook::present);
         d3d12->m_swapchain_hook->hook_method(13, (uintptr_t)&D3D12Hook::resize_buffers);
         d3d12->m_swapchain_hook->hook_method(14, (uintptr_t)&D3D12Hook::resize_target);
+        if (is_the_outer_worlds2_executable()) {
+            spdlog::info("[TOW2 D3D12] Phase1 complete: real_swapchain={:x} resize_buffers_original={:x} resize_target_original={:x}",
+                (uintptr_t)swap_chain,
+                (uintptr_t)d3d12->m_swapchain_hook->get_method(13).ptr(),
+                (uintptr_t)d3d12->m_swapchain_hook->get_method(14).ptr());
+        }
         d3d12->m_is_phase_1 = false;
     }
 
@@ -583,6 +802,121 @@ HRESULT WINAPI D3D12Hook::present1(IDXGISwapChain3* swap_chain, UINT sync_interv
     std::scoped_lock _{g_framework->get_hook_monitor_mutex()};
 
     return D3D12Hook::present_internal(swap_chain, sync_interval, flags, params, true);
+}
+
+HRESULT WINAPI D3D12Hook::create_swap_chain(IDXGIFactory* factory, IUnknown* device, DXGI_SWAP_CHAIN_DESC* desc, IDXGISwapChain** swap_chain) {
+    auto d3d12 = g_d3d12_hook;
+    using Fn = HRESULT(WINAPI*)(IDXGIFactory*, IUnknown*, DXGI_SWAP_CHAIN_DESC*, IDXGISwapChain**);
+    auto original = d3d12->m_create_swap_chain_hook->get_original<Fn>();
+    const auto result = original(factory, device, desc, swap_chain);
+
+    spdlog::info("[TOW2 D3D12] CreateSwapChain result={:x} swapchain={:x} device={:x} desc={}x{} fmt={} buffers={} flags={:x} output_window={:x}",
+        (uint32_t)result,
+        swap_chain != nullptr ? (uintptr_t)*swap_chain : 0,
+        (uintptr_t)device,
+        desc != nullptr ? desc->BufferDesc.Width : 0,
+        desc != nullptr ? desc->BufferDesc.Height : 0,
+        desc != nullptr ? (uint32_t)desc->BufferDesc.Format : 0,
+        desc != nullptr ? desc->BufferCount : 0,
+        desc != nullptr ? desc->Flags : 0,
+        desc != nullptr ? (uintptr_t)desc->OutputWindow : 0);
+
+    if (SUCCEEDED(result) && swap_chain != nullptr && *swap_chain != nullptr) {
+        IDXGISwapChain3* swap_chain3 = nullptr;
+        if (SUCCEEDED((*swap_chain)->QueryInterface(IID_PPV_ARGS(&swap_chain3))) && swap_chain3 != nullptr) {
+            d3d12->m_command_queue = (ID3D12CommandQueue*)device;
+            d3d12->install_present_hooks_for_swapchain(swap_chain3, "CreateSwapChain");
+            swap_chain3->Release();
+        }
+    }
+
+    return result;
+}
+
+HRESULT WINAPI D3D12Hook::create_swap_chain_for_hwnd(IDXGIFactory2* factory, IUnknown* device, HWND hwnd, const DXGI_SWAP_CHAIN_DESC1* desc, const DXGI_SWAP_CHAIN_FULLSCREEN_DESC* fullscreen_desc, IDXGIOutput* restrict_to_output, IDXGISwapChain1** swap_chain) {
+    auto d3d12 = g_d3d12_hook;
+    using Fn = HRESULT(WINAPI*)(IDXGIFactory2*, IUnknown*, HWND, const DXGI_SWAP_CHAIN_DESC1*, const DXGI_SWAP_CHAIN_FULLSCREEN_DESC*, IDXGIOutput*, IDXGISwapChain1**);
+    auto original = d3d12->m_create_swap_chain_for_hwnd_hook->get_original<Fn>();
+    const auto result = original(factory, device, hwnd, desc, fullscreen_desc, restrict_to_output, swap_chain);
+
+    spdlog::info("[TOW2 D3D12] CreateSwapChainForHwnd result={:x} hwnd={:x} swapchain1={:x} device={:x} desc={}x{} fmt={} buffers={} flags={:x}",
+        (uint32_t)result,
+        (uintptr_t)hwnd,
+        swap_chain != nullptr ? (uintptr_t)*swap_chain : 0,
+        (uintptr_t)device,
+        desc != nullptr ? desc->Width : 0,
+        desc != nullptr ? desc->Height : 0,
+        desc != nullptr ? (uint32_t)desc->Format : 0,
+        desc != nullptr ? desc->BufferCount : 0,
+        desc != nullptr ? desc->Flags : 0);
+
+    if (SUCCEEDED(result) && swap_chain != nullptr && *swap_chain != nullptr) {
+        IDXGISwapChain3* swap_chain3 = nullptr;
+        if (SUCCEEDED((*swap_chain)->QueryInterface(IID_PPV_ARGS(&swap_chain3))) && swap_chain3 != nullptr) {
+            d3d12->m_command_queue = (ID3D12CommandQueue*)device;
+            d3d12->install_present_hooks_for_swapchain(swap_chain3, "CreateSwapChainForHwnd");
+            swap_chain3->Release();
+        }
+    }
+
+    return result;
+}
+
+HRESULT WINAPI D3D12Hook::create_swap_chain_for_core_window(IDXGIFactory2* factory, IUnknown* device, IUnknown* window, const DXGI_SWAP_CHAIN_DESC1* desc, IDXGIOutput* restrict_to_output, IDXGISwapChain1** swap_chain) {
+    auto d3d12 = g_d3d12_hook;
+    using Fn = HRESULT(WINAPI*)(IDXGIFactory2*, IUnknown*, IUnknown*, const DXGI_SWAP_CHAIN_DESC1*, IDXGIOutput*, IDXGISwapChain1**);
+    auto original = d3d12->m_create_swap_chain_for_core_window_hook->get_original<Fn>();
+    const auto result = original(factory, device, window, desc, restrict_to_output, swap_chain);
+
+    spdlog::info("[TOW2 D3D12] CreateSwapChainForCoreWindow result={:x} window={:x} swapchain1={:x} device={:x} desc={}x{} fmt={} buffers={} flags={:x}",
+        (uint32_t)result,
+        (uintptr_t)window,
+        swap_chain != nullptr ? (uintptr_t)*swap_chain : 0,
+        (uintptr_t)device,
+        desc != nullptr ? desc->Width : 0,
+        desc != nullptr ? desc->Height : 0,
+        desc != nullptr ? (uint32_t)desc->Format : 0,
+        desc != nullptr ? desc->BufferCount : 0,
+        desc != nullptr ? desc->Flags : 0);
+
+    if (SUCCEEDED(result) && swap_chain != nullptr && *swap_chain != nullptr) {
+        IDXGISwapChain3* swap_chain3 = nullptr;
+        if (SUCCEEDED((*swap_chain)->QueryInterface(IID_PPV_ARGS(&swap_chain3))) && swap_chain3 != nullptr) {
+            d3d12->m_command_queue = (ID3D12CommandQueue*)device;
+            d3d12->install_present_hooks_for_swapchain(swap_chain3, "CreateSwapChainForCoreWindow");
+            swap_chain3->Release();
+        }
+    }
+
+    return result;
+}
+
+HRESULT WINAPI D3D12Hook::create_swap_chain_for_composition(IDXGIFactory2* factory, IUnknown* device, const DXGI_SWAP_CHAIN_DESC1* desc, IDXGIOutput* restrict_to_output, IDXGISwapChain1** swap_chain) {
+    auto d3d12 = g_d3d12_hook;
+    using Fn = HRESULT(WINAPI*)(IDXGIFactory2*, IUnknown*, const DXGI_SWAP_CHAIN_DESC1*, IDXGIOutput*, IDXGISwapChain1**);
+    auto original = d3d12->m_create_swap_chain_for_composition_hook->get_original<Fn>();
+    const auto result = original(factory, device, desc, restrict_to_output, swap_chain);
+
+    spdlog::info("[TOW2 D3D12] CreateSwapChainForComposition result={:x} swapchain1={:x} device={:x} desc={}x{} fmt={} buffers={} flags={:x}",
+        (uint32_t)result,
+        swap_chain != nullptr ? (uintptr_t)*swap_chain : 0,
+        (uintptr_t)device,
+        desc != nullptr ? desc->Width : 0,
+        desc != nullptr ? desc->Height : 0,
+        desc != nullptr ? (uint32_t)desc->Format : 0,
+        desc != nullptr ? desc->BufferCount : 0,
+        desc != nullptr ? desc->Flags : 0);
+
+    if (SUCCEEDED(result) && swap_chain != nullptr && *swap_chain != nullptr) {
+        IDXGISwapChain3* swap_chain3 = nullptr;
+        if (SUCCEEDED((*swap_chain)->QueryInterface(IID_PPV_ARGS(&swap_chain3))) && swap_chain3 != nullptr) {
+            d3d12->m_command_queue = (ID3D12CommandQueue*)device;
+            d3d12->install_present_hooks_for_swapchain(swap_chain3, "CreateSwapChainForComposition");
+            swap_chain3->Release();
+        }
+    }
+
+    return result;
 }
 
 thread_local int32_t g_resize_buffers_depth = 0;

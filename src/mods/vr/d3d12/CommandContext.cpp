@@ -1,4 +1,5 @@
 #include <spdlog/spdlog.h>
+#include <utility/Logging.hpp>
 #include <utility/String.hpp>
 
 #include "Framework.hpp"
@@ -47,14 +48,21 @@ bool CommandContext::setup(const wchar_t* name) {
 
 void CommandContext::reset() {
     std::scoped_lock _{this->mtx};
-    this->wait(2000);
+
+    if (this->waiting_for_fence) {
+        spdlog::info("[D3D12] Waiting for GPU fence before resetting command context {}", utility::narrow(this->internal_name));
+    }
+
+    this->wait(INFINITE);
     //this->on_post_present(VR::get().get());
 
     this->cmd_allocator.Reset();
     this->cmd_list.Reset();
     this->fence.Reset();
     this->fence_value = 0;
-    CloseHandle(this->fence_event);
+    if (this->fence_event != 0) {
+        CloseHandle(this->fence_event);
+    }
     this->fence_event = 0;
     this->waiting_for_fence = false;
 }
@@ -63,7 +71,18 @@ void CommandContext::wait(uint32_t ms) {
     std::scoped_lock _{this->mtx};
 
 	if (this->fence_event && this->waiting_for_fence) {
-        WaitForSingleObject(this->fence_event, ms);
+        const auto wait_result = WaitForSingleObject(this->fence_event, ms);
+
+        if (wait_result == WAIT_TIMEOUT) {
+            SPDLOG_WARNING_EVERY_N_SEC(1, "[D3D12] Timed out waiting for GPU fence for {}", utility::narrow(this->internal_name));
+            return;
+        }
+
+        if (wait_result != WAIT_OBJECT_0) {
+            SPDLOG_ERROR_EVERY_N_SEC(1, "[D3D12] Failed waiting for GPU fence for {}: {}", utility::narrow(this->internal_name), wait_result);
+            return;
+        }
+
         ResetEvent(this->fence_event);
         this->waiting_for_fence = false;
         if (FAILED(this->cmd_allocator->Reset())) {

@@ -481,12 +481,13 @@ public:
     bool is_using_synchronized_afr() const {
         return m_rendering_method->value() == RenderingMethod::SYNCHRONIZED ||
                (m_extreme_compat_mode->value() && m_rendering_method->value() == RenderingMethod::NATIVE_STEREO) ||
-               (m_rendering_method->value() == RenderingMethod::ALTERNATE_FRAMEWARP && (afw_since_inject_frame_count < 90 || afw_resolution_change_skip_frames > 0));
+               (m_rendering_method->value() == RenderingMethod::ALTERNATE_FRAMEWARP &&
+                   (afw_since_inject_frame_count < 90 || afw_resolution_change_skip_frames > 0 || is_using_2d_screen()));
     }
 
     bool is_using_afw() {
         return m_rendering_method->value() == RenderingMethod::ALTERNATE_FRAMEWARP && afw_since_inject_frame_count >= 90 &&
-               afw_switching_skip_frames == 0 && afw_resolution_change_skip_frames == 0 && g_framework->is_dx12();
+               afw_switching_skip_frames == 0 && afw_resolution_change_skip_frames == 0 && g_framework->is_dx12() && !is_using_2d_screen();
     }
 
     bool is_using_afw_without_api_check() {
@@ -635,6 +636,10 @@ public:
 
     bool is_ghosting_fix_enabled() const {
         return m_ghosting_fix->value();
+    }
+
+    bool is_ghosting_fix_bootstrap_enabled() const {
+        return m_ghosting_fix_bootstrap_view_states->value();
     }
 
     auto& get_fake_stereo_hook() {
@@ -960,7 +965,8 @@ private:
         "Matched",
     };
 
-    const ModCombo::Ptr m_rendering_method{ ModCombo::create(generate_name("RenderingMethod"), s_rendering_method_names, RenderingMethod::ALTERNATE_FRAMEWARP) };
+    // Fresh profiles start in Native Stereo; existing profiles can opt into AFW.
+    const ModCombo::Ptr m_rendering_method{ ModCombo::create(generate_name("RenderingMethod"), s_rendering_method_names, RenderingMethod::NATIVE_STEREO) };
     const ModCombo::Ptr m_synced_afr_method{ ModCombo::create(generate_name("SyncedSequentialMethod"), s_synced_afr_method_names, 1) };
     const ModToggle::Ptr m_extreme_compat_mode{ ModToggle::create(generate_name("ExtremeCompatibilityMode"), false, true) };
     const ModToggle::Ptr m_uncap_framerate{ ModToggle::create(generate_name("UncapFramerate"), true) };
@@ -987,7 +993,10 @@ private:
     const ModToggle::Ptr m_fix_object_motion_vector{ModToggle::create(generate_name("AFW_FixObjectMotionVector"), true)};
     const ModSlider::Ptr m_fix_object_motion_range{ModSlider::create(generate_name("AFW_FixObjectMotionRange"), 0.1f, 10.0f, 3.0f)};
     const ModToggle::Ptr m_ultra_responsive{ModToggle::create(generate_name("AFW_UltraResponsive"), true)};
-    const ModToggle::Ptr m_fix_moving_object_brightness_flickering{ModToggle::create(generate_name("AFW_FixMovingObjectBrightnessFlickering"), true)};
+    // This optional PDAFW velocity input caused moving-object brightness pumping
+    // and severe shimmer in Avowed. Keep the base motion-vector correction on,
+    // but make the extra brightness path opt-in.
+    const ModToggle::Ptr m_fix_moving_object_brightness_flickering{ModToggle::create(generate_name("AFW_FixMovingObjectBrightnessFlickering"), false)};
     const ModToggle::Ptr m_framewarp_debug{ModToggle::create(generate_name("AFW_FramewarpDebug"), false)};
     const ModSlider::Ptr m_ignore_motion_threshold{ModSlider::create(generate_name("AFW_IgnoreMotionThreshold"), 0.1f, 100.0f, 2.5f)};
     const ModCombo::Ptr m_framewarp_mode{ModCombo::create(generate_name("AFW_FramewarpMode"),
@@ -1049,6 +1058,7 @@ private:
     const ModSlider::Ptr m_depth_scale{ ModSlider::create(generate_name("DepthScale"), 0.01f, 1.0f, 1.0f) };
 
     const ModToggle::Ptr m_ghosting_fix{ ModToggle::create(generate_name("GhostingFix"), true) };
+    const ModToggle::Ptr m_ghosting_fix_bootstrap_view_states{ ModToggle::create(generate_name("GhostingFixBootstrapViewStates"), false) };
     const ModToggle::Ptr m_native_stereo_fix{ ModToggle::create(generate_name("NativeStereoFix"), false) };
     const ModToggle::Ptr m_native_stereo_fix_same_pass{ ModToggle::create(generate_name("NativeStereoFixSamePass"), true) };
 
@@ -1167,6 +1177,7 @@ public:
             *m_custom_z_near,
             *m_custom_z_near_enabled,
             *m_ghosting_fix,
+            *m_ghosting_fix_bootstrap_view_states,
             *m_native_stereo_fix,
             *m_native_stereo_fix_same_pass,
             *m_splitscreen_compatibility_mode,
@@ -1196,6 +1207,7 @@ public:
             *m_framewarp_mode,
             *m_fix_object_motion_vector,
             *m_fix_object_motion_range,
+            *m_ignore_motion_threshold,
             *m_ultra_responsive,
             *m_fix_moving_object_brightness_flickering,
         };

@@ -1,12 +1,15 @@
 #include <Windows.h>
 #include <TlHelp32.h>
+#include <algorithm>
 #include <chrono>
+#include <cwctype>
 #include <filesystem>
 #include <fstream>
 
 #include <spdlog/spdlog.h>
 
 #include <nlohmann/json.hpp>
+#include <utility/Module.hpp>
 #include <utility/String.hpp>
 #include <imgui.h>
 
@@ -19,6 +22,29 @@
 #include "OpenXR.hpp"
 
 using namespace nlohmann;
+
+namespace {
+bool is_avowed_executable_openxr() {
+    static const bool result = []() {
+        try {
+            const auto path = utility::get_module_pathw(utility::get_executable());
+            if (!path) {
+                return false;
+            }
+
+            auto filename = std::filesystem::path{*path}.filename().wstring();
+            std::transform(filename.begin(), filename.end(), filename.begin(), [](wchar_t ch) {
+                return static_cast<wchar_t>(std::towlower(static_cast<wint_t>(ch)));
+            });
+            return filename == L"avowed-win64-shipping.exe";
+        } catch (...) {
+            return false;
+        }
+    }();
+
+    return result;
+}
+}
 
 namespace runtimes {
 void OpenXR::on_draw_ui() {
@@ -53,6 +79,10 @@ void OpenXR::on_system_properties_acquired(const XrSystemProperties& system_prop
     spdlog::info("[OpenXR] OpenXR system supports {} layers", system_properties.graphicsProperties.maxLayerCount);
     spdlog::info("[OpenXR] OpenXR system orientation: {}", system_properties.trackingProperties.orientationTracking);
     spdlog::info("[OpenXR] OpenXR system position: {}", system_properties.trackingProperties.positionTracking);
+
+    const auto system_name = std::string_view{system_properties.systemName};
+    this->is_steamvr_psvr2_system = system_name.find("SteamVR/OpenXR") != std::string_view::npos
+        && system_name.find("playstation_vr2") != std::string_view::npos;
 
     const auto should_check_vd = !this->ignore_vd_checks->value();
 
@@ -158,6 +188,9 @@ VRRuntime::Error OpenXR::synchronize_frame(std::optional<uint32_t> frame_count) 
         }
 
         this->frame_state = local_frame_state;
+        // Preserve the authoritative state returned by xrWaitFrame. Avowed's
+        // render-thread prediction advances frame_state before xrEndFrame.
+        this->wait_frame_state = local_frame_state;
 
         // Initialize all the existing frame states if they aren't already so we don't get some random error when calling xrEndFrame
         for (auto& pipeline_state : this->pipeline_states) {
@@ -657,6 +690,22 @@ VRRuntime::Error OpenXR::update_input() {
                         hand.forced_actions[output.action] = true;
                     }
                 }
+            }
+        }
+
+        // SteamVR exposes PSVR2 Triangle/Circle capacitive touch through the Oculus-style
+        // B-button touch actions. Mirror those actions to UEVR's thumbrest modifiers.
+        if (this->is_steamvr_psvr2_system) {
+            if ((VRRuntime::Hand)i == VRRuntime::Hand::LEFT
+                && this->action_set.action_map.contains("thumbresttouchleft")
+                && this->is_action_active("bbuttontouchleft", VRRuntime::Hand::LEFT)) {
+                hand.forced_actions[this->action_set.action_map["thumbresttouchleft"]] = true;
+            }
+
+            if ((VRRuntime::Hand)i == VRRuntime::Hand::RIGHT
+                && this->action_set.action_map.contains("thumbresttouchright")
+                && this->is_action_active("bbuttontouchright", VRRuntime::Hand::RIGHT)) {
+                hand.forced_actions[this->action_set.action_map["thumbresttouchright"]] = true;
             }
         }
     }
@@ -1886,7 +1935,19 @@ XrResult OpenXR::end_frame(const std::vector<XrCompositionLayerBaseHeader*>& qua
     }
 
     XrFrameEndInfo frame_end_info{XR_TYPE_FRAME_END_INFO};
-    frame_end_info.displayTime = pipelined_frame_state.predictedDisplayTime != 0 ? pipelined_frame_state.predictedDisplayTime : this->frame_state.predictedDisplayTime;
+    auto submitted_display_time =
+        pipelined_frame_state.predictedDisplayTime != 0
+            ? pipelined_frame_state.predictedDisplayTime
+            : this->frame_state.predictedDisplayTime;
+
+    // Avowed advances speculative/pipelined frame state while a frame is open.
+    // xrEndFrame must use the immutable display time returned by xrWaitFrame;
+    // otherwise SteamVR rejects submissions with XR_ERROR_TIME_INVALID.
+    if (is_avowed_executable_openxr() && this->wait_frame_state.predictedDisplayTime > 0) {
+        submitted_display_time = this->wait_frame_state.predictedDisplayTime;
+    }
+
+    frame_end_info.displayTime = submitted_display_time;
     frame_end_info.environmentBlendMode = this->blend_mode;
     frame_end_info.layerCount = (uint32_t)layers.size();
     frame_end_info.layers = layers.data();

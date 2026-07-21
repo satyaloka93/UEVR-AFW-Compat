@@ -2,10 +2,14 @@
 
 #include <filesystem>
 #include <fstream>
+#include <optional>
+#include <algorithm>
+#include <cwctype>
 #include <nlohmann/json.hpp>
 
 #include <utility/Config.hpp>
 #include <utility/String.hpp>
+#include <utility/Module.hpp>
 
 #include <sdk/CVar.hpp>
 #include <sdk/threading/GameThreadWorker.hpp>
@@ -21,6 +25,25 @@
 constexpr std::string_view cvars_standard_txt_name = "cvars_standard.txt";
 constexpr std::string_view cvars_data_txt_name = "cvars_data.txt";
 constexpr std::string_view user_script_txt_name = "user_script.txt";
+
+namespace {
+bool is_the_outer_worlds2_executable() {
+    static const bool result = []() {
+        const auto exe_path = utility::get_module_pathw(utility::get_executable());
+        if (!exe_path.has_value()) {
+            return false;
+        }
+
+        auto filename = std::filesystem::path(*exe_path).filename().wstring();
+        std::transform(filename.begin(), filename.end(), filename.begin(), [](wchar_t ch) {
+            return static_cast<wchar_t>(std::towlower(static_cast<wint_t>(ch)));
+        });
+        return filename == L"theouterworlds2-win64-shipping.exe";
+    }();
+
+    return result;
+}
+}
 
 CVarManager::CVarManager() {
     ZoneScopedN(__FUNCTION__);
@@ -81,6 +104,21 @@ void CVarManager::spawn_console() {
 
 void CVarManager::on_pre_engine_tick(sdk::UGameEngine* engine, float delta) {
     ZoneScopedN(__FUNCTION__);
+
+    if (is_the_outer_worlds2_executable()) {
+        static bool s_logged_tow2_skip = false;
+        if (!s_logged_tow2_skip) {
+            spdlog::warn("[TOW2] Skipping CVarManager scanner/freeze path; user_script.txt will still execute through UE console exec");
+            s_logged_tow2_skip = true;
+        }
+
+        if (m_should_execute_console_script) {
+            execute_console_script(engine, user_script_txt_name.data());
+            m_should_execute_console_script = false;
+        }
+
+        return;
+    }
 
     for (auto& cvar : m_all_cvars) {
         cvar->update();
@@ -168,6 +206,22 @@ void CVarManager::on_frame() {
 
 void CVarManager::on_config_load(const utility::Config& cfg, bool set_defaults) {
     ZoneScopedN(__FUNCTION__);
+
+    if (is_the_outer_worlds2_executable()) {
+        static bool s_logged_tow2_skip = false;
+        if (!s_logged_tow2_skip) {
+            spdlog::warn("[TOW2] Skipping CVarManager cvars_standard/cvars_data load to avoid post-update scanner stall; user_script.txt remains enabled");
+            s_logged_tow2_skip = true;
+        }
+
+        // Do not load/freeze the CVar menu values on TOW2 because update()/freeze() uses the fragile
+        // CVar scanner path. Keep user_script enabled so profile-specific console commands can still
+        // be applied without sdk::find_cvar_* scanning.
+        if (!set_defaults) {
+            m_should_execute_console_script = true;
+        }
+        return;
+    }
 
     for (auto& cvar : m_all_cvars) {
         cvar->load(set_defaults);

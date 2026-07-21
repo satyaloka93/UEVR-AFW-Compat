@@ -446,10 +446,34 @@ private:
 
     std::unique_ptr<ThreadWorker<FRHICommandListImmediate*>> m_slate_thread_worker{std::make_unique<ThreadWorker<FRHICommandListImmediate*>>()};
 
+    enum class GhostingFixState : uint8_t {
+        Off,
+        WaitingForHooks,
+        LearningViewStates,
+        OrientingViewStates,
+        PairReady,
+        NaturallySeparated,
+        Active,
+        FailedClosed,
+    };
+
     struct GhostingFixPair {
         sdk::FSceneViewStateInterface* eye_state[2]{};
+        sdk::FSceneViewStateInterface* pending_eye_state[2]{};
+        uint8_t pending_eye_observations[2]{};
+        sdk::FSceneViewStateInterface* pending_left_source_state{};
+        uint8_t pending_left_source_observations{};
+        uint32_t pending_left_source_frame{};
+        bool pending_left_source_frame_valid{};
         uintptr_t scene{};
-        uint32_t last_seen_frame{};
+        uintptr_t pending_scene{};
+        uint8_t pending_scene_observations[2]{};
+        bool pending_scene_has_unknown_state{};
+        uint64_t first_seen_observation{};
+        uint64_t last_seen_observation{};
+        uint32_t generation{};
+        bool orientation_confirmed{};
+        bool logged_naturally_separated{};
     };
 
     struct {
@@ -461,7 +485,23 @@ private:
         uint32_t last_frame_count{};
         uint32_t last_index{};
 
-        GhostingFixPair m_ghosting_fix_pair{};
+        GhostingFixPair ghosting_pair{};
+        GhostingFixState ghosting_state{GhostingFixState::Off};
+        uint64_t ghosting_observation_serial{};
+        uint64_t ghosting_learning_start_observation{};
+        uint64_t ghosting_fail_observation{};
+        uint64_t ghosting_last_right_eye_remap_observation{};
+        uint64_t ghosting_right_eye_remap_count{};
+        std::chrono::steady_clock::time_point ghosting_last_right_eye_remap_time{};
+        bool ghosting_logged_bootstrap_disabled{};
+        uintptr_t ghosting_bootstrap_scene{};
+        uint32_t ghosting_bootstrap_last_frame{};
+        uint32_t ghosting_bootstrap_stable_frames{};
+        uint32_t ghosting_bootstrap_next_attempt_frame{};
+        uint32_t ghosting_bootstrap_pulse_until_frame{};
+        uint8_t ghosting_bootstrap_attempts{};
+        bool ghosting_bootstrap_ready{};
+        bool ghosting_logged_bootstrap_deferred{};
 
         // For keeping track of what the states were before our modifications.
         std::unordered_map<sdk::FSceneViewStateInterface*, sdk::FSceneViewInitOptionsUE4> view_init_options_ue4{};

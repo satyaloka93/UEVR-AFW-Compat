@@ -174,6 +174,7 @@ public:
     bool session_ready{false};
     bool frame_began{false};
     bool profile_calls{false};
+    bool is_steamvr_psvr2_system{false};
 
     std::chrono::high_resolution_clock::time_point profiler_start_time{};
 
@@ -196,6 +197,7 @@ public:
     XrViewState view_state{XR_TYPE_VIEW_STATE};
     XrViewState stage_view_state{XR_TYPE_VIEW_STATE};
     XrFrameState frame_state{XR_TYPE_FRAME_STATE};
+    XrFrameState wait_frame_state{XR_TYPE_FRAME_STATE}; // Immutable state returned by the current xrWaitFrame
 
     XrSessionState session_state{XR_SESSION_STATE_UNKNOWN};
 
