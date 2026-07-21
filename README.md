@@ -12,6 +12,15 @@
 > corrections are credited by provenance, but the source baseline and runtime
 > are PureDark AFW.
 
+## Current game scope
+
+| Game | Status in this AFW compatibility effort |
+|---|---|
+| Avowed | Working experimental AFW/6DoF integration; repeated crafting/loadout validation remains. |
+| The Outer Worlds 2 | Working experimental Native startup → beta.4 Previous Frame AFW; title timing and 2D transitions remain under validation. |
+| Silent Hill f | **Not working in this AFW release.** The OKF documents Joey Hodge's separate Native/UE5.7 baseline as porting reference only. |
+| Silent Hill 2 / other games | No compatibility claim until explicitly validated. |
+
 ## Inherited RenderDoc integration
 
 > **This is a fork of [praydog's UEVR](https://github.com/praydog/UEVR) that adds an embedded

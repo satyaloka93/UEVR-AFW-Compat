@@ -14,6 +14,12 @@ tags:
 timestamp: '2026-07-20T00:00:00Z'
 ---
 
+# Scope
+
+This fix documents the working **Joey Hodge baseline UEVR lineage**. It is a
+porting reference, not a claim of support in the current PureDark AFW
+compatibility release: that release does not yet run SHf.
+
 # Problem
 
 Silent Hill f (`SHf-Win64-Shipping.exe`) did not fail because of one missing
@@ -147,7 +153,8 @@ or continuous renderer setup means the working path was not reached.
 
 # Scope and porting rule
 
-This was a baseline UEVR/UE5.7 compatibility bring-up, not an AFW fix. Port the
+This was a Joey-derived baseline UEVR/UE5.7 compatibility bring-up, not an AFW
+fix. The current PureDark AFW release remains non-working for SHf. Port the
 validated startup, OpenXR ownership and owned-resource pieces narrowly. Do not
 copy the original diagnostic/RenderInspector subsystem wholesale into another
 branch. Preserve exact UESDK compatibility when reproducing the checkpoint.

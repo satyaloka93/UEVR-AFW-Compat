@@ -1,7 +1,7 @@
 ---
 type: game-profile
 title: Silent Hill f (SHf) — baseline bring-up and known state
-description: SHf was brought up on baseline UEVR through a staged UE5.7/OpenXR bootstrap, stable UI reuse, owned scene copies, scene-capture vtable bootstrap and rehook suppression; Native Stereo is the known baseline, while later AFW attempts remain unvalidated.
+description: SHf was brought up in Joey Hodge's baseline UEVR lineage through a staged UE5.7/OpenXR bootstrap and stable owned resources; that Native Stereo work is historical reference only because the current PureDark AFW compatibility release does not yet run SHf.
 tags:
 - silent-hill-f
 - shf
@@ -20,14 +20,18 @@ timestamp: '2026-07-20T00:00:00Z'
 - Engine family: UE5.7
 - Renderer/runtime: D3D12 + OpenXR; the proven local era used PSVR2 through
   SteamVR/OpenXR.
-- Known rendering baseline: Native Stereo, not AFW.
+- Known rendering baseline: Native Stereo in Joey Hodge's UEVR lineage, not
+  PureDark AFW.
+- Current AFW compatibility status: **not working**; SHf is not supported by
+  this release yet.
 - Historical working checkpoint tags:
   - `57shf54` at `f10ec09a` — UE5.7 OpenXR resolution/frame/input correction.
   - `shf57` at `b8bb816e` — SHf stable UI/scene-target baseline.
 
-The baseline bring-up is now captured in
+The Joey-derived baseline bring-up is captured in
 [/fixes/shf-ue57-openxr-bootstrap.md](/fixes/shf-ue57-openxr-bootstrap.md).
-It was not one injection fix: validated/cached UE5.7 discovery, OpenXR startup
+It documents source lineage to port, not functionality already delivered by the
+current PureDark AFW branch. It was not one injection fix: validated/cached UE5.7 discovery, OpenXR startup
 ownership, fail-soft viewport handling, bounded CVar/D3D retries, and stable
 owned render resources all had to work together.
 
@@ -182,16 +186,17 @@ SHf was also the first testbed for experimental injected VRS
 
 # AFW and later integration status
 
-Backups named `config.txt.pre_afw_emergency_rollback_20260711_1850` and
-`config.txt.pre_afw_disable_20260711_1900` prove that an SHf AFW attempt was
-rolled back, but no validated AFW result or matching runtime/profile checkpoint
-was preserved. Treat SHf AFW as unsupported/unvalidated.
+The current PureDark AFW compatibility release **does not yet work with SHf**.
+The working code described above came from Joey Hodge's baseline UEVR lineage
+and has not been successfully reconciled with this AFW branch.
 
-The 2026-07-19 PureDark integration log is a **failure log**, not a baseline
-regression verdict: it repeatedly reports a null FRHITexture2D vtable and
-`Failed to get back buffer`, never reaches the SHf scene-capture bootstrap, and
-then the OpenXR session stops. Preserve baseline UEVR and experimental AFW as
-separate deployments when retesting.
+Backups named `config.txt.pre_afw_emergency_rollback_20260711_1850` and
+`config.txt.pre_afw_disable_20260711_1900` record an SHf AFW rollback. The
+2026-07-19 PureDark integration failure repeatedly reports a null
+`FRHITexture2D` vtable and `Failed to get back buffer`, never reaches the SHf
+scene-capture bootstrap, and then loses the OpenXR session. Preserve the Joey
+Native baseline and PureDark AFW as separate deployments until the required SHf
+bootstrap/resource work is deliberately ported and validated.
 
 # Remaining recovery gaps
 

@@ -14,7 +14,7 @@ the fixes that produced them, and the playbooks for analysing new problems.
 * [Avowed](games/avowed.md) — working 6DoF/AFW state and crafting attachment-lifetime guard.
 * [The Outer Worlds 2](games/outer-worlds-2.md) — safe Native startup and beta.4 Previous Frame AFW zero-ghosting checkpoint.
 * [Hogwarts Legacy](games/hogwarts-legacy.md) — transition-cooldown crash fix.
-* [Silent Hill f](games/silent-hill-f.md) — baseline UE5.7/OpenXR injection bootstrap, Native Stereo and stable UI/scene-copy lineage; AFW remains unvalidated.
+* [Silent Hill f](games/silent-hill-f.md) — Joey-derived Native/UE5.7 baseline reference; the current PureDark AFW release does not yet work with SHf.
 
 ## Fixes
 

@@ -141,7 +141,9 @@ ghosting only after reaching gameplay.
 5. Repeat Avowed crafting, weapon replacement and loadout transitions; confirm
    the stale-attachment guard protects the original dump path without breaking
    weapon recovery.
-6. Regression-test SHf/SH2 and PSVR2 input with beta.4.
+6. SHf is currently non-working: reconcile and port its Joey-derived UE5.7/
+   OpenXR bootstrap into PureDark AFW before regression testing it. Separately
+   regression-test SH2 and PSVR2 input with beta.4.
 7. Remove the temporary hang-dump watchdog after launch reliability is proven.
 8. Do not commit the integration source until those checks pass.
 
