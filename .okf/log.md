@@ -1,6 +1,7 @@
 # Update Log
 
 ## 2026-07-20
+* **Maintenance**: Added an explicitly unvalidated [SHf AFW bootstrap candidate](/games/silent-hill-f.md) targeting the null-FRHI-vtable/backbuffer deadlock with SHf-only separate-RT forcing, render-thread scene-capture publication, real-backbuffer fallback, and rehook suppression; support status remains non-working until runtime evidence arrives.
 * **Maintenance**: Published prerelease `afw-beta4-compat-v0.1.0-alpha.1` from source commit `9dfb9746`, including privacy-scanned backend/PDB, direct Epic-gated UESDK pinning, official matching beta.4 PDAFW runtime, loaders, checksums, explicit Avowed/TOW2 experimental scope, and an SHf-not-supported warning; the binary is compile-validated and remains a prerelease pending runtime reproduction.
 * **Maintenance**: Published the experimental Avowed/TOW2 compatibility source on `afw-beta4-game-compat`, with the beta.4 PDAFW ABI, portable optional deployment, and direct pinning of the tested Epic-gated PureDark UESDK revision; open validation now controls prerelease status rather than source visibility.
 * **Maintenance**: Corrected [Silent Hill f](/games/silent-hill-f.md) scope: its working UE5.7/OpenXR implementation is Joey-derived Native-baseline knowledge for future porting, while the current PureDark AFW compatibility release is explicitly non-working for SHf.

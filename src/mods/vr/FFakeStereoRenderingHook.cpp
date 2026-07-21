@@ -138,6 +138,73 @@ bool avowed_is_current_game() {
     return result;
 }
 
+bool shf_is_current_game() {
+    static const bool result = []() {
+        try {
+            const auto path = utility::get_module_pathw(utility::get_executable());
+            if (!path) {
+                return false;
+            }
+
+            std::wstring lowered;
+            lowered.reserve(path->size());
+            for (const auto ch : *path) {
+                lowered.push_back(static_cast<wchar_t>(std::towlower(static_cast<wint_t>(ch))));
+            }
+
+            return lowered.find(L"shf-win64-shipping.exe") != std::wstring::npos;
+        } catch (...) {
+            return false;
+        }
+    }();
+
+    return result;
+}
+
+void shf_force_scene_viewport_separate_rt(const sdk::FViewport& viewport, const char* source) {
+    if (!shf_is_current_game() || g_framework == nullptr || !g_framework->is_game_data_intialized()) {
+        return;
+    }
+
+    const auto vr = VR::get();
+    if (vr == nullptr || !vr->is_hmd_active() || vr->is_stereo_emulation_enabled() || vr->is_extreme_compatibility_mode_enabled()) {
+        return;
+    }
+
+    constexpr uintptr_t fviewport_base_offset = 0x08;
+    constexpr uintptr_t b_use_separate_rt_full_offset = 0x287;
+    constexpr uintptr_t b_force_separate_rt_full_offset = 0x288;
+    constexpr uintptr_t b_use_separate_rt_fviewport_offset = b_use_separate_rt_full_offset - fviewport_base_offset;
+    constexpr uintptr_t b_force_separate_rt_fviewport_offset = b_force_separate_rt_full_offset - fviewport_base_offset;
+
+    const auto viewport_base = reinterpret_cast<uintptr_t>(&viewport);
+    if (viewport_base <= fviewport_base_offset ||
+        IsBadReadPtr(reinterpret_cast<void*>(viewport_base - fviewport_base_offset), sizeof(void*)) ||
+        IsBadReadPtr(reinterpret_cast<void*>(viewport_base + b_force_separate_rt_fviewport_offset), sizeof(uint8_t))) {
+        return;
+    }
+
+    const auto fscene_viewport_vtable = *reinterpret_cast<uintptr_t*>(viewport_base - fviewport_base_offset);
+    if (fscene_viewport_vtable == 0 || !utility::get_module_within(fscene_viewport_vtable).has_value()) {
+        return;
+    }
+
+    auto* use_separate_rt = reinterpret_cast<uint8_t*>(viewport_base + b_use_separate_rt_fviewport_offset);
+    auto* force_separate_rt = reinterpret_cast<uint8_t*>(viewport_base + b_force_separate_rt_fviewport_offset);
+    if (*use_separate_rt > 1 || *force_separate_rt > 1) {
+        SPDLOG_WARN_ONCE("[SHf] Refusing to force separate RT from {}; unexpected FSceneViewport bool bytes use={} force={}",
+            source, *use_separate_rt, *force_separate_rt);
+        return;
+    }
+
+    if (*use_separate_rt == 0 || *force_separate_rt == 0) {
+        SPDLOG_WARN_ONCE("[SHf] Forcing FSceneViewport separate RT from {} at viewport {:x}", source, viewport_base);
+    }
+
+    *use_separate_rt = 1;
+    *force_separate_rt = 1;
+}
+
 // Scan through function instructions to detect usage of double
 // floating point precision instructions.
 bool is_using_double_precision(uintptr_t addr) {
@@ -2363,6 +2430,10 @@ void FFakeStereoRenderingHook::game_viewport_client_draw_hook(sdk::UGameViewport
     g_hook->m_in_viewport_client_draw = true;
     g_hook->m_was_in_viewport_client_draw = false;
     g_hook->get_render_target_manager()->set_viewport(viewport);
+
+    if (viewport != nullptr) {
+        shf_force_scene_viewport_separate_rt(*viewport, "UGameViewportClient::Draw");
+    }
 
     utility::ScopeGuard _{ 
         []() { 
@@ -5767,6 +5838,16 @@ __forceinline void FFakeStereoRenderingHook::render_texture_render_thread(FFakeS
     SPDLOG_INFO_ONCE("render texture render thread called!");
 #endif
 
+    if (shf_is_current_game() && FRHITexture2D::get_vtable() == nullptr) {
+        auto* vtable_source = src_texture != nullptr ? src_texture : backbuffer;
+        if (vtable_source != nullptr && !IsBadReadPtr(vtable_source, sizeof(void*))) {
+            const auto vtable = *(uintptr_t*)vtable_source;
+            if (vtable != 0 && utility::get_module_within(vtable).has_value()) {
+                FRHITexture2D::set_vtable((void*)vtable);
+                SPDLOG_INFO("[SHf] Captured FRHITexture2D vtable from RenderTexture_RenderThread: {:x}", vtable);
+            }
+        }
+    }
 
     if (!g_hook->is_slate_hooked() && g_hook->has_attempted_to_hook_slate()) {
         SPDLOG_INFO("Attempting to hook SlateRHIRenderer::DrawWindow_RenderThread using RenderTexture_RenderThread return address...");
@@ -6810,6 +6891,8 @@ void VRRenderTargetManager_Base::update_viewport(bool use_separate_rt, const sdk
         return;
     }
 
+    shf_force_scene_viewport_separate_rt(vp, "RenderTargetManager::UpdateViewport");
+
     //SPDLOG_INFO("Widget: {:x}", (uintptr_t)ViewportWidget);
 }
 
@@ -7812,10 +7895,15 @@ bool VRRenderTargetManager_Base::create_scene_capture() try {
         return false;
     }
 
-    // This is necessary for offset calculations to succeed.
+    // Most games publish the fake-stereo texture vtable first. SHf does not,
+    // so its scene-capture target must be allowed to bootstrap that vtable.
     if (FRHITexture2D::get_vtable() == nullptr) {
-        SPDLOG_WARN("[VRRenderTargetManager] FRHITexture2D vtable is null, waiting for it to be set!");
-        return false;
+        if (!shf_is_current_game()) {
+            SPDLOG_WARN("[VRRenderTargetManager] FRHITexture2D vtable is null, waiting for it to be set!");
+            return false;
+        }
+
+        SPDLOG_WARN_ONCE("[SHf] FRHITexture2D vtable is null; creating scene capture for render-thread bootstrap.");
     }
 
     destroy_scene_capture();
@@ -7961,12 +8049,36 @@ bool VRRenderTargetManager_Base::create_scene_capture() try {
                         if (frt != nullptr) {
                             sdk::FRenderTarget::update_offsets(frt);
 
-                            if (frt->get_render_target_texture() == nullptr || *frt->get_render_target_texture() == nullptr) {
+                            auto** frt_texture = frt->get_render_target_texture();
+                            if (frt_texture == nullptr || *frt_texture == nullptr || IsBadReadPtr(*frt_texture, sizeof(void*))) {
                                 SPDLOG_WARN("Waiting for render target texture to be valid...");
                                 return false;
                             }
-    
+
+                            if (shf_is_current_game() && FRHITexture2D::get_vtable() == nullptr) {
+                                const auto vtable = *(uintptr_t*)*frt_texture;
+                                if (vtable == 0 || !utility::get_module_within(vtable).has_value()) {
+                                    SPDLOG_WARN("[SHf] Scene-capture FRHITexture2D vtable candidate is not module-backed; waiting...");
+                                    return false;
+                                }
+
+                                FRHITexture2D::set_vtable((void*)vtable);
+                                SPDLOG_INFO("[SHf] Bootstrapped FRHITexture2D vtable from scene capture: {:x}", vtable);
+                            }
+
                             hook_frt(frt);
+
+                            if (shf_is_current_game()) {
+                                // The normal queued RHI/game-thread handoff can remain blocked at
+                                // SHf's startup screen. The target and RHI texture are valid on the
+                                // render thread, so publish the owned UObject reference immediately.
+                                this->scene_capture_target = tgt;
+                                this->scene_capture_target_rhi_thread = tgt;
+                                this->in_flight_target = nullptr;
+                                already_updated = true;
+                                SPDLOG_INFO("[SHf] Scene capture texture created via render-thread bootstrap!");
+                                return true;
+                            }
     
                             RHIThreadWorker::get().enqueue([this, tgt]() -> void {
                                 if (!tgt.valid()) {
@@ -8059,7 +8171,24 @@ bool VRRenderTargetManager_Base::create_scene_capture() try {
                     return false;
                 }
     
+                if (shf_is_current_game() && FRHITexture2D::get_vtable() == nullptr) {
+                    const auto vtable = *(uintptr_t*)*frttex;
+                    if (vtable == 0 || !utility::get_module_within(vtable).has_value()) {
+                        SPDLOG_WARN("[SHf] Recreated scene-capture vtable candidate is not module-backed; waiting...");
+                        return false;
+                    }
+                    FRHITexture2D::set_vtable((void*)vtable);
+                }
+
                 hook_frt(frt);
+
+                if (shf_is_current_game()) {
+                    this->scene_capture_target = tgt;
+                    this->scene_capture_target_rhi_thread = tgt;
+                    this->in_flight_target = nullptr;
+                    SPDLOG_INFO("[SHf] Scene capture texture recreated via render-thread bootstrap!");
+                    return true;
+                }
     
                 RHIThreadWorker::get().enqueue([this, tgt]() -> void {
                     if (!tgt.valid()) {

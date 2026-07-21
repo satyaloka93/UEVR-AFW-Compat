@@ -138,6 +138,16 @@ The live TOW2 profile was reset after the successful run to Native startup with
 Ghosting Fix/Bootstrap off; Previous Frame mode remains stored. Enable AFW and
 ghosting only after reaching gameplay.
 
+# SHf AFW bootstrap candidate
+
+The development branch now carries a deliberately narrow, unvalidated SHf
+candidate: validated separate-RT forcing, scene-capture-driven FRHI vtable
+bootstrap, immediate render-thread target publication, temporary real-backbuffer
+fallback, and D3D rehook suppression. It targets the prior loop of
+`FRHITexture2D vtable is null` plus `Failed to get back buffer`; SHf remains
+unsupported until a fresh log proves the candidate progresses through stereo
+setup and AFW initialization.
+
 # Standing findings
 
 - Native → AFW has worked; **AFW → Native is unsafe** and can leave a black
