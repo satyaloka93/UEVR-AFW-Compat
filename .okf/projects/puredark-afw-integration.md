@@ -47,6 +47,26 @@ standing rules are in [narrow port scope](/decisions/narrow-port-scope.md).
 - See repository file `docs/PDAFW_RUNTIME.md` before building or packaging;
   never mistake the generated dummy DLL for the real runtime.
 
+# Public alpha release
+
+- Prerelease: `afw-beta4-compat-v0.1.0-alpha.1`
+- URL: `https://github.com/satyaloka93/UEVR-AFW-Compat/releases/tag/afw-beta4-compat-v0.1.0-alpha.1`
+- Source/build commit: `9dfb9746521c5c8d9a317c9d11ed6a7875e1fa6a`
+- The gated submodule fetched `9034a857` directly from `PureDark/UESDK`; no
+  UESDK source or compatibility patch is redistributed by this fork.
+- Neutral-path MSVC Release build completed successfully; backend and PDB scans
+  found no prior username or private workspace path.
+- Published hashes:
+  - `UEVRBackend.dll`: `701a5971e88d9d9d0021ab47de5f6d62f9ba31d506f82718fbcb820d8537068a`
+  - `UEVRBackend.pdb`: `fea73312d4cee7665d7fecd81cd4880ebad17a27c68300a6ecb40a361d4c9555`
+  - `openvr_api.dll`: `41e0f5a156e802030bdd5b8bd48f26b90b076e821f506f522e6f77dba3999b95`
+  - `UEVRPluginNullifier.dll`: `d6e5707479b8042fd0d1e4d1c73d52f58af90dea1e54aa44ed70b26f0d68b66e`
+  - main ZIP: `0079f9adf756e044e48481f87ea344a8650561e9f1482f0c59a5b87a02631357`
+  - symbols ZIP: `8e2618424b010232c42fbf534c68a079fab7446ac123ff98ec46800474094533`
+- The publication rebuild is compile-validated but has not replaced the earlier
+  gameplay-tested local binary checkpoint. Keep the release marked prerelease
+  until users reproduce Avowed/TOW2 behavior with these exact hashes.
+
 # Avowed state retained
 
 - Authoritative OpenXR wait-frame timing, Native-only direct RHI pose

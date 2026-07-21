@@ -1,6 +1,7 @@
 # Update Log
 
 ## 2026-07-20
+* **Maintenance**: Published prerelease `afw-beta4-compat-v0.1.0-alpha.1` from source commit `9dfb9746`, including privacy-scanned backend/PDB, direct Epic-gated UESDK pinning, official matching beta.4 PDAFW runtime, loaders, checksums, explicit Avowed/TOW2 experimental scope, and an SHf-not-supported warning; the binary is compile-validated and remains a prerelease pending runtime reproduction.
 * **Maintenance**: Published the experimental Avowed/TOW2 compatibility source on `afw-beta4-game-compat`, with the beta.4 PDAFW ABI, portable optional deployment, and direct pinning of the tested Epic-gated PureDark UESDK revision; open validation now controls prerelease status rather than source visibility.
 * **Maintenance**: Corrected [Silent Hill f](/games/silent-hill-f.md) scope: its working UE5.7/OpenXR implementation is Joey-derived Native-baseline knowledge for future porting, while the current PureDark AFW compatibility release is explicitly non-working for SHf.
 * **Maintenance**: Published this bundle on `afw-beta4-game-compat` as a squashed portable snapshot: removed identifiable workstation paths, replaced unavailable evidence with explicit placeholders, documented the separate gated UESDK and official PDAFW runtime requirements, and marked the branch as a knowledge preview until compatibility source validation passes.

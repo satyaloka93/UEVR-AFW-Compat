@@ -10,6 +10,9 @@
 > and the [PDAFW runtime dependency guide](docs/PDAFW_RUNTIME.md). Joey-derived
 > corrections are credited by provenance, but the source baseline and runtime
 > are PureDark AFW.
+>
+> **Latest experimental prerelease:**
+> [`afw-beta4-compat-v0.1.0-alpha.1`](https://github.com/satyaloka93/UEVR-AFW-Compat/releases/tag/afw-beta4-compat-v0.1.0-alpha.1)
 
 ## Current game scope
 
