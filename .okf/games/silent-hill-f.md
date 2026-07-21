@@ -198,27 +198,6 @@ scene-capture bootstrap, and then loses the OpenXR session. Preserve the Joey
 Native baseline and PureDark AFW as separate deployments until the required SHf
 bootstrap/resource work is deliberately ported and validated.
 
-## Unvalidated AFW bootstrap candidate
-
-The branch now has a narrow SHf-only candidate intended to break the observed
-startup deadlock without claiming success:
-
-- force the validated SHf FSceneViewport separate-RT bytes;
-- permit scene-capture creation before the normal fake-stereo
-  `FRHITexture2D` vtable exists;
-- validate and publish the scene-capture texture's module-backed vtable from the
-  render thread;
-- immediately publish the validated scene-capture target instead of waiting on
-  SHf's blocked startup RHI/game-thread handoff;
-- use the real D3D12 backbuffer temporarily while the fake-stereo target is
-  absent; and
-- suppress destructive D3D rehooks while the Windows message hook is intact.
-
-Expected progress telemetry includes `[SHf] Bootstrapped FRHITexture2D vtable
-from scene capture` and `[SHf] Scene capture texture created via render-thread
-bootstrap!`. This candidate is not part of `v0.1.0-alpha.1` and remains
-unsupported until a new runtime log proves setup reaches valid stereo/AFW.
-
 # Remaining recovery gaps
 
 - No SHA-256 manifest exists for the original known-good SHf backend, PDB,

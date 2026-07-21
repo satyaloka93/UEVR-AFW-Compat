@@ -60,23 +60,6 @@ bool is_the_outer_worlds2_executable() {
     return result;
 }
 
-bool is_silent_hill_f_executable() {
-    static const bool result = []() {
-        const auto exe_path = utility::get_module_pathw(utility::get_executable());
-        if (!exe_path.has_value()) {
-            return false;
-        }
-
-        auto filename = fs::path(*exe_path).filename().wstring();
-        std::transform(filename.begin(), filename.end(), filename.begin(), [](wchar_t ch) {
-            return static_cast<wchar_t>(std::towlower(static_cast<wint_t>(ch)));
-        });
-        return filename == L"shf-win64-shipping.exe";
-    }();
-
-    return result;
-}
-
 bool write_tow2_title_hang_dump() {
     const auto path = Framework::get_persistent_dir("tow2_title_hang.dmp");
     spdlog::warn("[HangDump] Writing in-process TOW2 title hang dump to {}", path.string());
@@ -247,23 +230,6 @@ void Framework::hook_monitor() {
                 now - s_last_tow2_rehook_suppression_log >= std::chrono::seconds(5)) {
                 spdlog::warn("[TOW2] Suppressing D3D rehook because the Windows message hook is still intact");
                 s_last_tow2_rehook_suppression_log = now;
-            }
-
-            m_last_present_time = now;
-            m_last_message_time = now;
-            m_last_chance_time = now;
-            m_has_last_chance = true;
-            m_sent_message = false;
-            return;
-        }
-
-        if (is_silent_hill_f_executable() && message_hook_intact && now - m_last_present_time >= std::chrono::seconds(5)) {
-            static auto s_last_shf_rehook_suppression_log = std::chrono::steady_clock::time_point{};
-
-            if (s_last_shf_rehook_suppression_log == std::chrono::steady_clock::time_point{} ||
-                now - s_last_shf_rehook_suppression_log >= std::chrono::seconds(5)) {
-                spdlog::warn("[SHf] Suppressing D3D rehook because the Windows message hook is still intact");
-                s_last_shf_rehook_suppression_log = now;
             }
 
             m_last_present_time = now;

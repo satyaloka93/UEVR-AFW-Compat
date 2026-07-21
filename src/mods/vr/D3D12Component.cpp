@@ -44,23 +44,6 @@ bool is_the_outer_worlds2_executable() {
 
     return result;
 }
-
-bool is_silent_hill_f_executable() {
-    static const bool result = []() {
-        const auto exe_path = utility::get_module_pathw(utility::get_executable());
-        if (!exe_path.has_value()) {
-            return false;
-        }
-
-        auto filename = std::filesystem::path(*exe_path).filename().wstring();
-        std::transform(filename.begin(), filename.end(), filename.begin(), [](wchar_t ch) {
-            return static_cast<wchar_t>(std::towlower(static_cast<wint_t>(ch)));
-        });
-        return filename == L"shf-win64-shipping.exe";
-    }();
-
-    return result;
-}
 }
 
 constexpr auto ENGINE_SRC_DEPTH = D3D12_RESOURCE_STATE_DEPTH_READ | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
@@ -109,9 +92,8 @@ vr::EVRCompositorError D3D12Component::on_frame(VR* vr) {
         backbuffer = real_backbuffer;
     }
 
-    if (backbuffer == nullptr && (is_the_outer_worlds2_executable() || is_silent_hill_f_executable())) {
-        SPDLOG_INFO_EVERY_N_SEC(1, "[{} D3D12] Fake stereo render target is null on_frame; falling back to real backbuffer",
-            is_silent_hill_f_executable() ? "SHf" : "TOW2");
+    if (backbuffer == nullptr && is_the_outer_worlds2_executable()) {
+        SPDLOG_INFO_EVERY_N_SEC(1, "[TOW2 D3D12] Fake stereo render target is null on_frame; falling back to real backbuffer");
         backbuffer = real_backbuffer;
     }
 
@@ -1434,9 +1416,8 @@ bool D3D12Component::setup() {
         backbuffer = real_backbuffer;
     }
 
-    if (backbuffer == nullptr && (is_the_outer_worlds2_executable() || is_silent_hill_f_executable())) {
-        SPDLOG_INFO_EVERY_N_SEC(1, "[{} D3D12] Fake stereo render target is null during setup; falling back to real backbuffer",
-            is_silent_hill_f_executable() ? "SHf" : "TOW2");
+    if (backbuffer == nullptr && is_the_outer_worlds2_executable()) {
+        SPDLOG_INFO_EVERY_N_SEC(1, "[TOW2 D3D12] Fake stereo render target is null during setup; falling back to real backbuffer");
         backbuffer = real_backbuffer;
         using_real_backbuffer_fallback = true;
     }
