@@ -48,11 +48,15 @@ to Epic, obtain access to `PureDark/UESDK`, configure SSH, and then run:
 git submodule update --init --recursive
 ```
 
-The compatibility integration uses UESDK revision:
+The gated submodule pins the tested hardened revision directly:
 
 ```text
 9034a85742ac178dbfbb2e93dd8492ec58ee6d99
 ```
+
+After access is granted, `git submodule update --init --recursive` fetches that
+recorded commit from private `PureDark/UESDK`. No UESDK source or compatibility
+patch is redistributed by this public fork.
 
 UESDK source and the PDAFW runtime solve different dependency requirements:
 UESDK provides Unreal reflection/stereo integration source, while

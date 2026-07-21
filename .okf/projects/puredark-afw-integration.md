@@ -20,18 +20,18 @@ standing rules are in [narrow port scope](/decisions/narrow-port-scope.md).
 
 # Branch and preservation state
 
-- Public documentation branch: `afw-beta4-game-compat`, based on PureDark
+- Public branch: `afw-beta4-game-compat`, based on PureDark
   `AFW` commit `e260ffe8` (`UEVR_AFW_v1.0-beta.4` tag).
-- The validated local integration uses hardened UESDK descendant `9034a857`
-  instead of PureDark's original `491f973`; the public branch remains at the
-  beta.4 source baseline until the compatibility source passes its open gates.
+- The public source directly pins tested hardened UESDK `9034a857` in gated
+  private `PureDark/UESDK`; authorized builders fetch it through the ordinary
+  recursive submodule workflow.
 - Joey integration is preserved at `021d45b7` plus private stashes/evidence;
   only audited corrections are intended for publication with attribution.
 - Experimental deployment remains isolated at `<deploy-dir>`; the primary UEVR
   installation remains untouched.
-- The compatibility working tree is intentionally uncommitted and is **not yet
-  present on the public branch**. Do not infer that this documentation-preview
-  branch contains the described Avowed/TOW2 source changes.
+- The Avowed/TOW2 integration source is published experimentally on this
+  branch. Open validation remains explicit; publication does not promote it to
+  stable status.
 
 # Runtime and build dependency model
 
@@ -145,7 +145,8 @@ ghosting only after reaching gameplay.
    OpenXR bootstrap into PureDark AFW before regression testing it. Separately
    regression-test SH2 and PSVR2 input with beta.4.
 7. Remove the temporary hang-dump watchdog after launch reliability is proven.
-8. Do not commit the integration source until those checks pass.
+8. Keep releases marked prerelease until these checks pass; retain temporary
+   diagnostics only while their corresponding race remains unresolved.
 
 # Related
 

@@ -1,10 +1,9 @@
 # UEVR AFW compatibility
 
-> **Branch status — documentation preview:** `afw-beta4-game-compat` is based on
-> PureDark's `UEVR_AFW_v1.0-beta.4` checkpoint. The validated knowledge bundle
-> is published now, but the local Avowed/TOW2 compatibility source remains
-> withheld until its open cross-game validation gates pass. This branch is not
-> yet a stable binary release.
+> **Branch status — experimental alpha:** `afw-beta4-game-compat` is based on
+> PureDark's `UEVR_AFW_v1.0-beta.4` checkpoint and now includes the Avowed/TOW2
+> compatibility source plus the portable knowledge bundle. Open validation
+> items remain, so this must not be represented as a stable release.
 >
 > Start with the portable [OKF knowledge bundle](.okf/index.md), the
 > [PureDark AFW integration state](.okf/projects/puredark-afw-integration.md),
@@ -31,9 +30,8 @@
 > ### 👉 **New here? Read the [RenderDoc Capture Guide](RENDERDOC_CAPTURE_GUIDE.md) — it walks you through everything step by step.**
 >
 > **RenderDoc note:** the capture tooling and guide are inherited from the source
-> lineage, but this compatibility fork does not yet publish binary releases.
-> Build only with the gated dependencies described below, or use an authorized
-> upstream release.
+> lineage. Compatibility prereleases provide the AFW backend/runtime bundle,
+> not a complete RenderDoc or injector distribution.
 >
 > Deeper design notes live in [docs/RENDERDOC_EMBEDDED_PORT.md](docs/RENDERDOC_EMBEDDED_PORT.md).
 > All UEVR credit goes to **praydog**; this fork only adds the capture plumbing + docs.
@@ -45,17 +43,11 @@
 If you build `UEVRBackend.dll` yourself instead of using the release, two pieces
 are required so your build behaves like the shipped one:
 
-1. **The UESDK crash-fix is applied for you at configure time.** The `UESDK`
-   submodule points to gated **`PureDark/UESDK`**; link GitHub to an Epic account
-   and configure SSH access before initializing submodules. Because that repo is
-   private and is not copied into this public fork, the CMake configure step applies
-   [`patches/UESDK-StereoStuff-renderdoc.patch`](patches/UESDK-StereoStuff-renderdoc.patch)
-   to your own checkout (see
-   [`cmake/ApplyUESDKPatch.cmake`](cmake/ApplyUESDKPatch.cmake)) — idempotent,
-   warns-not-fails on drift — so a normal recursive clone + build just works.
-   Without this fix, injecting under embedded RenderDoc **crashes** during stereo
-   setup (the `GetNativeResource` vtable probe rejects the RenderDoc-wrapped
-   resource).
+1. **UESDK remains gated.** The submodule pins tested revision `9034a857` in
+   private **`PureDark/UESDK`**. Link GitHub to an Epic account, obtain access,
+   configure SSH, and run `git submodule update --init --recursive`. Git fetches
+   the recorded commit directly even though it is not advertised as a named
+   branch. No UESDK source or compatibility patch is published in this fork.
 
 2. **Use the bundled `renderdoc.dll` — not a stock RenderDoc install.** The
    shipped DLL is a **custom RenderDoc fork**
@@ -122,9 +114,10 @@ Or from PowerShell:
 .\Capture-RenderDoc.ps1
 ```
 
-> This documentation-preview branch does not currently publish a release archive.
-> These capture instructions describe the inherited tooling and are retained for
-> source-level reference until a validated compatibility prerelease exists.
+> The AFW compatibility prerelease is a backend drop-in, not a complete capture
+> package. These instructions describe inherited tooling; use the official UEVR
+> injector and obtain any separately licensed capture components from their
+> authorized source.
 
 ### B) Standard VR injection (upstream UEVR)
 

@@ -312,6 +312,27 @@ add_custom_command(
     TARGET uevr POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:openvr> $<TARGET_FILE_DIR:uevr>)
 
+# Optional isolated deployment for compatibility testing. Disabled by default.
+set(UEVR_COMPAT_DEPLOY_DIR "" CACHE PATH "Optional directory for compatibility build artifacts")
+set(UEVR_PDAFW_RUNTIME_DIR "${CMAKE_SOURCE_DIR}/dependencies/pd-afwmod/bin" CACHE PATH "Directory containing the official matching PDAFW runtime and OpenXR loader")
+if(UEVR_COMPAT_DEPLOY_DIR)
+    add_custom_command(
+        TARGET uevr POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${UEVR_COMPAT_DEPLOY_DIR}"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:uevr> "${UEVR_COMPAT_DEPLOY_DIR}/UEVRBackend.dll"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_PDB_FILE:uevr> "${UEVR_COMPAT_DEPLOY_DIR}/UEVRBackend.pdb"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:openvr> "${UEVR_COMPAT_DEPLOY_DIR}/openvr_api.dll")
+
+    if(EXISTS "${UEVR_PDAFW_RUNTIME_DIR}/PDAFWPlugin.dll" AND EXISTS "${UEVR_PDAFW_RUNTIME_DIR}/openxr_loader.dll")
+        add_custom_command(
+            TARGET uevr POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${UEVR_PDAFW_RUNTIME_DIR}/PDAFWPlugin.dll" "${UEVR_COMPAT_DEPLOY_DIR}/PDAFWPlugin.dll"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${UEVR_PDAFW_RUNTIME_DIR}/openxr_loader.dll" "${UEVR_COMPAT_DEPLOY_DIR}/openxr_loader.dll")
+    else()
+        message(WARNING "UEVR_COMPAT_DEPLOY_DIR is set, but the official PDAFW runtime or OpenXR loader is missing from UEVR_PDAFW_RUNTIME_DIR")
+    endif()
+endif()
+
 # Build the RenderDoc launcher + smoke tools and stage renderdoc.dll beside
 # UEVRBackend.dll. No-op if RenderDoc isn't available on this machine.
 uevr_attach_full_renderdoc(uevr)
