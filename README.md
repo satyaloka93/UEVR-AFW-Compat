@@ -21,11 +21,10 @@
 >
 > ### 👉 **New here? Read the [RenderDoc Capture Guide](RENDERDOC_CAPTURE_GUIDE.md) — it walks you through everything step by step.**
 >
-> **Just want to capture?** Download the [latest release](../../releases/latest), unzip, and run:
-> ```powershell
-> .\UEVRRenderDocLauncher.exe --exe "C:\Path\To\YourGame-Win64-Shipping.exe" --wait
-> .\Capture-RenderDoc.ps1
-> ```
+> **RenderDoc note:** the capture tooling and guide are inherited from the source
+> lineage, but this compatibility fork does not yet publish binary releases.
+> Build only with the gated dependencies described below, or use an authorized
+> upstream release.
 >
 > Deeper design notes live in [docs/RENDERDOC_EMBEDDED_PORT.md](docs/RENDERDOC_EMBEDDED_PORT.md).
 > All UEVR credit goes to **praydog**; this fork only adds the capture plumbing + docs.
@@ -114,9 +113,9 @@ Or from PowerShell:
 .\Capture-RenderDoc.ps1
 ```
 
-> Download the [latest release of **this** fork](../../releases/latest) (not
-> praydog's) — it contains the launcher, backend, RenderDoc runtime, VR loaders,
-> and capture scripts. The release does **not** include `UEVRInjector.exe`.
+> This documentation-preview branch does not currently publish a release archive.
+> These capture instructions describe the inherited tooling and are retained for
+> source-level reference until a validated compatibility prerelease exists.
 
 ### B) Standard VR injection (upstream UEVR)
 
