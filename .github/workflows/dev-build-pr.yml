@@ -1,5 +1,7 @@
 name: Dev Build PR
-on: [pull_request_target, workflow_dispatch]
+# Manual only until the public fork has a scoped credential for gated UESDK checkout.
+on:
+  workflow_dispatch:
 env:
   BUILD_TYPE: Release
 permissions:

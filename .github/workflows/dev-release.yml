@@ -1,5 +1,7 @@
 name: Dev Release
-on: [push, workflow_dispatch]
+# Manual only in the public fork: recursive checkout requires gated UESDK access.
+on:
+  workflow_dispatch:
 env:
   BUILD_TYPE: Release
 jobs:
