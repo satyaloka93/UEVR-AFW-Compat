@@ -1,4 +1,18 @@
-# UEVR + 🎬 Embedded RenderDoc Capture
+# UEVR AFW compatibility
+
+> **Branch status — documentation preview:** `afw-beta4-game-compat` is based on
+> PureDark's `UEVR_AFW_v1.0-beta.4` checkpoint. The validated knowledge bundle
+> is published now, but the local Avowed/TOW2 compatibility source remains
+> withheld until its open cross-game validation gates pass. This branch is not
+> yet a stable binary release.
+>
+> Start with the portable [OKF knowledge bundle](.okf/index.md), the
+> [PureDark AFW integration state](.okf/projects/puredark-afw-integration.md),
+> and the [PDAFW runtime dependency guide](docs/PDAFW_RUNTIME.md). Joey-derived
+> corrections are credited by provenance, but the source baseline and runtime
+> are PureDark AFW.
+
+## Inherited RenderDoc integration
 
 > **This is a fork of [praydog's UEVR](https://github.com/praydog/UEVR) that adds an embedded
 > [RenderDoc](https://renderdoc.org/) capture system.** You can grab a real GPU frame
@@ -24,9 +38,9 @@ If you build `UEVRBackend.dll` yourself instead of using the release, two pieces
 are required so your build behaves like the shipped one:
 
 1. **The UESDK crash-fix is applied for you at configure time.** The `UESDK`
-   submodule stays on upstream **`praydog/UESDK`** (praydog's gated SDK — you
-   need access to build at all, same as upstream UEVR). Because that repo is
-   private and can't be forked publicly, the CMake configure step instead applies
+   submodule points to gated **`PureDark/UESDK`**; link GitHub to an Epic account
+   and configure SSH access before initializing submodules. Because that repo is
+   private and is not copied into this public fork, the CMake configure step applies
    [`patches/UESDK-StereoStuff-renderdoc.patch`](patches/UESDK-StereoStuff-renderdoc.patch)
    to your own checkout (see
    [`cmake/ApplyUESDKPatch.cmake`](cmake/ApplyUESDKPatch.cmake)) — idempotent,

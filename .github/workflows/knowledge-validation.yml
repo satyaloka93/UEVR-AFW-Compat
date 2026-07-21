@@ -1,0 +1,23 @@
+name: Knowledge and privacy validation
+
+on:
+  push:
+    branches:
+      - afw-beta4-game-compat
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install validator dependency
+        run: python -m pip install --disable-pip-version-check pyyaml
+      - name: Validate portable paths and OKF
+        run: python scripts/validate_publication.py .
