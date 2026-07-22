@@ -1,0 +1,2 @@
+# Imported runtime-tested game profiles retain their upstream formatting.
+profiles/** whitespace=-trailing-space,-space-before-tab,-blank-at-eof

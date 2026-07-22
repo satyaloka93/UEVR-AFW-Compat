@@ -1,7 +1,7 @@
 ---
 type: fix
 title: Silent Hill f — UE5.7 OpenXR and render-target bootstrap
-description: 'SHf injection requires a staged UE5.7/OpenXR startup plus bounded, UEVR-owned scene/UI resources; a local PureDark beta.4 candidate now validates both-eye Native operation without runaway allocation, but the published alpha remains unsupported.'
+description: 'SHf injection requires a staged UE5.7/OpenXR startup plus bounded, UEVR-owned scene/UI resources; source commit cc0c43f9 and alpha.2 publish the runtime-tested both-eye Native candidate.'
 tags:
 - silent-hill-f
 - shf
@@ -17,10 +17,10 @@ timestamp: '2026-07-22T10:48:00+09:00'
 # Scope
 
 This fix documents the working **Joey Hodge baseline UEVR lineage** and the
-bounded resource rules validated by the current local PureDark beta.4 port.
-The local candidate now injects and renders both eyes in Native Stereo, but it
-is uncommitted and is not part of prerelease `afw-beta4-compat-v0.1.0-alpha.1`;
-the published alpha therefore remains unsupported for SHf.
+bounded resource rules validated by the PureDark beta.4 port. Source commit
+`cc0c43f9` publishes the candidate that injects and renders both eyes in Native
+Stereo; alpha.2 packages its rebuilt backend and clean profile. Alpha.1 remains
+unsupported for SHf.
 
 # Problem
 
@@ -184,9 +184,8 @@ or continuous renderer setup means the working path was not reached.
 # Scope and porting rule
 
 This remains primarily a Joey-derived UEVR/UE5.7 injection and resource-lifetime
-fix. The local PureDark beta.4 port proves those pieces can coexist with AFW,
-but the public alpha does not include the candidate and AFW is not the
-recommended SHf mode. Port startup, OpenXR ownership and owned-resource pieces
+fix. The published PureDark beta.4 port proves those pieces can coexist with
+AFW, but AFW is not the recommended SHf mode. Port startup, OpenXR ownership and owned-resource pieces
 narrowly; do not copy the original diagnostic/RenderInspector subsystem
 wholesale. Preserve exact UESDK compatibility and treat PDAFW runtime, header
 and callers as one checkpoint.
@@ -210,6 +209,7 @@ part of this injection fix.
   `f10ec09a` and `835dbccb` → `c199a185`; final lineage `7bbbbf3a`,
   `b8bb816e`, `258f5983`, `529d1644`
 - Tags: `57shf54`, `shf57`
+- Published source: commit `cc0c43f9`
 - Runtime evidence placeholders:
   `<evidence-root>/shf-afw-bootstrap-candidate-20260720` and
   `<evidence-root>/shf-stable-resources-candidate2-20260722`

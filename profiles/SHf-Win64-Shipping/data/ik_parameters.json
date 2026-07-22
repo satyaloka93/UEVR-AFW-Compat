@@ -1,0 +1,259 @@
+{
+    "_profileLabels": {
+        "claw": "Claw",
+        "claw_large": "Claw Large",
+        "default": "Default"
+    },
+    "_profileState": {
+        "currentEditingProfile": "default"
+    },
+    "claw": {
+        "animation_location_offset": [
+            0.0,
+            0.0,
+            0.0
+        ],
+        "animation_mesh": "Pawn.Mesh",
+        "animation_rotation_offset": [
+            0.0,
+            0.0,
+            0.0
+        ],
+        "mesh": "Pawn.Mesh",
+        "mesh_location_offset": [
+            -7.805,
+            2.1888,
+            -84.5551
+        ],
+        "mesh_rotation_offset": [
+            0.0,
+            -84.0,
+            0.0
+        ],
+        "show_debug_meshes": false,
+        "solvers": {
+            "815079b2-4903-4747-983b-789042c128e8": {
+                "active": true,
+                "allow_stretch": true,
+                "allow_wrist_affects_elbow": true,
+                "end_bone": "hand_small_r",
+                "end_bone_offset": [
+                    -6.6031,
+                    1.5,
+                    2.5
+                ],
+                "end_bone_rotation": [
+                    -157.0,
+                    -8.0,
+                    -174.0
+                ],
+                "end_control_type": 1,
+                "joint_bone": "lowerarm_small_r",
+                "label": "Right",
+                "max_stretch_scale": 0.859000027179718,
+                "smoothing": 0,
+                "solver_type": 1,
+                "sort_order": 1,
+                "start_bone": "upperarm_small_r",
+                "start_stretch_ratio": 0.0,
+                "wrist_bone": "",
+                "wrist_twist_influence": 0.3779999911785126,
+                "wrist_twist_max": 74.625
+            },
+            "d4873d02-2839-498c-bc2e-326897a6541b": {
+                "active": true,
+                "allow_stretch": true,
+                "allow_wrist_affects_elbow": true,
+                "end_bone": "hand_l",
+                "end_bone_offset": [
+                    -7.204,
+                    0.893,
+                    2.996
+                ],
+                "end_bone_rotation": [
+                    2.0,
+                    10.0,
+                    -155.0
+                ],
+                "end_control_type": 0,
+                "joint_bone": "lowerarm_l",
+                "label": "Left",
+                "max_stretch_scale": 1.093999981880188,
+                "smoothing": 0,
+                "solver_type": 1,
+                "sort_order": 2,
+                "start_bone": "upperarm_l",
+                "start_stretch_ratio": 0.0,
+                "wrist_bone": "",
+                "wrist_twist_influence": 0.3869999945163727,
+                "wrist_twist_max": 75.0
+            }
+        }
+    },
+    "claw_large": {
+        "animation_location_offset": [
+            0.0,
+            0.0,
+            0.0
+        ],
+        "animation_mesh": "Pawn.Mesh",
+        "animation_rotation_offset": [
+            0.0,
+            0.0,
+            0.0
+        ],
+        "mesh": "Pawn.Mesh",
+        "mesh_location_offset": [
+            -7.805,
+            2.1888,
+            -84.5551
+        ],
+        "mesh_rotation_offset": [
+            0.0,
+            -84.0,
+            0.0
+        ],
+        "show_debug_meshes": false,
+        "solvers": {
+            "815079b2-4903-4747-983b-789042c128e8": {
+                "active": true,
+                "allow_stretch": true,
+                "allow_wrist_affects_elbow": true,
+                "end_bone": "hand_large_r",
+                "end_bone_offset": [
+                    -6.304,
+                    6.1989,
+                    0.5989
+                ],
+                "end_bone_rotation": [
+                    -157.0,
+                    -8.0,
+                    -174.0
+                ],
+                "end_control_type": 1,
+                "joint_bone": "lowerarm_large_r",
+                "label": "Right",
+                "max_stretch_scale": 0.859000027179718,
+                "smoothing": 0,
+                "solver_type": 1,
+                "sort_order": 1,
+                "start_bone": "upperarm_large_r",
+                "start_stretch_ratio": 0.0,
+                "wrist_bone": "",
+                "wrist_twist_influence": 0.3779999911785126,
+                "wrist_twist_max": 74.625
+            },
+            "d4873d02-2839-498c-bc2e-326897a6541b": {
+                "active": true,
+                "allow_stretch": true,
+                "allow_wrist_affects_elbow": true,
+                "end_bone": "hand_l",
+                "end_bone_offset": [
+                    -7.204,
+                    0.893,
+                    2.996
+                ],
+                "end_bone_rotation": [
+                    2.0,
+                    10.0,
+                    -155.0
+                ],
+                "end_control_type": 0,
+                "joint_bone": "lowerarm_l",
+                "label": "Left",
+                "max_stretch_scale": 1.093999981880188,
+                "smoothing": 0,
+                "solver_type": 1,
+                "sort_order": 2,
+                "start_bone": "upperarm_l",
+                "start_stretch_ratio": 0.0,
+                "wrist_bone": "",
+                "wrist_twist_influence": 0.3869999945163727,
+                "wrist_twist_max": 75.0
+            }
+        }
+    },
+    "default": {
+        "animation_location_offset": [
+            0.0,
+            0.0,
+            0.0
+        ],
+        "animation_mesh": "Pawn.Mesh",
+        "animation_rotation_offset": [
+            0.0,
+            0.0,
+            0.0
+        ],
+        "mesh": "Pawn.Mesh",
+        "mesh_location_offset": [
+            -7.805,
+            2.1888,
+            -84.5551
+        ],
+        "mesh_rotation_offset": [
+            0.0,
+            -84.0,
+            0.0
+        ],
+        "show_debug_meshes": false,
+        "solvers": {
+            "815079b2-4903-4747-983b-789042c128e8": {
+                "active": true,
+                "allow_stretch": true,
+                "allow_wrist_affects_elbow": true,
+                "end_bone": "hand_r",
+                "end_bone_offset": [
+                    -6.6031,
+                    1.5,
+                    2.5
+                ],
+                "end_bone_rotation": [
+                    -157.0,
+                    -8.0,
+                    -174.0
+                ],
+                "end_control_type": 1,
+                "joint_bone": "lowerarm_r",
+                "label": "Right",
+                "max_stretch_scale": 0.859000027179718,
+                "smoothing": 0,
+                "solver_type": 1,
+                "sort_order": 1,
+                "start_bone": "upperarm_r",
+                "start_stretch_ratio": 0.0,
+                "wrist_bone": "",
+                "wrist_twist_influence": 0.3779999911785126,
+                "wrist_twist_max": 74.625
+            },
+            "d4873d02-2839-498c-bc2e-326897a6541b": {
+                "active": true,
+                "allow_stretch": true,
+                "allow_wrist_affects_elbow": true,
+                "end_bone": "hand_l",
+                "end_bone_offset": [
+                    -7.204,
+                    0.893,
+                    2.996
+                ],
+                "end_bone_rotation": [
+                    2.0,
+                    10.0,
+                    -155.0
+                ],
+                "end_control_type": 0,
+                "joint_bone": "lowerarm_l",
+                "label": "Left",
+                "max_stretch_scale": 1.093999981880188,
+                "smoothing": 0,
+                "solver_type": 1,
+                "sort_order": 2,
+                "start_bone": "upperarm_l",
+                "start_stretch_ratio": 0.0,
+                "wrist_bone": "",
+                "wrist_twist_influence": 0.3869999945163727,
+                "wrist_twist_max": 75.0
+            }
+        }
+    }
+}

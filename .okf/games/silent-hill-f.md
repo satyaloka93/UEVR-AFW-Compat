@@ -1,7 +1,7 @@
 ---
 type: game-profile
 title: Silent Hill f (SHf) — local Native candidate, profile and limitations
-description: SHf now has a runtime-tested local UE5.7/OpenXR candidate with reliable injection, bounded owned resources and both-eye Native Stereo; AFW and automatic DLSS repair remain experimental, and the published alpha is still unsupported.
+description: SHf now has a published experimental UE5.7/OpenXR compatibility source and alpha.2 profile with reliable injection, bounded owned resources and both-eye Native Stereo; AFW and automatic DLSS repair remain limited.
 tags:
 - silent-hill-f
 - shf
@@ -23,11 +23,12 @@ timestamp: '2026-07-22T10:48:00+09:00'
 - Renderer/runtime: D3D12 + OpenXR; the proven local era used PSVR2 through
   SteamVR/OpenXR.
 - Historical rendering baseline: Native Stereo in Joey Hodge's UEVR lineage.
-- Current local status: a narrow PureDark beta.4 compatibility candidate now
-  injects reliably, renders both eyes in Native Stereo, keeps resource
-  allocation bounded, and permits a manual Native → AFW transition.
-- Publication status: the working SHf candidate is **uncommitted and local**.
-  Prerelease `afw-beta4-compat-v0.1.0-alpha.1` remains unsupported for SHf.
+- Current status: the narrow PureDark beta.4 compatibility source now injects
+  reliably, renders both eyes in Native Stereo, keeps resource allocation
+  bounded, and permits a manual Native → AFW transition.
+- Publication status: source commit `cc0c43f9` publishes the runtime-tested
+  candidate. Prerelease alpha.2 includes its backend and a clean SHf profile;
+  alpha.1 remains unsupported for SHf.
 - Recommended mode: Native Stereo. AFW is technically functional but is not
   recommended because its small additional GPU saving comes with hand/weapon
   distortion and no CPU-cadence improvement.
@@ -71,7 +72,7 @@ frame loop.
 
 # Injection and resource fix set
 
-The current local candidate narrowly ports the tagged `shf57` bring-up and
+The published candidate narrowly ports the tagged `shf57` bring-up and
 later SHf recovery mechanisms into the PureDark beta.4 destination. The
 historical distinctions below remain intentional because the later source and
 the current candidate have not been preserved as clean committed checkpoints.
@@ -200,9 +201,10 @@ while `VR_RenderingMethod=0`. Never automatically enable AFW for SHf. Profile
 experiments can re-save Ghosting Fix bootstrap independently; reset both
 Ghosting Fix values to `false` before the next Native launch.
 
-The candidate has exact backend/PDB/runtime hashes, but the complete profile and
-source are not yet a committed public checkpoint. Preserve a fresh-process
-backend/PDB/config/scripts/log manifest before promoting SHf support.
+The original runtime-tested candidate has exact backend/PDB/runtime hashes, and
+source commit `cc0c43f9` plus the alpha.2 profile publish the corresponding
+implementation and launch state. Preserve fresh-process backend/PDB/config/
+scripts/log manifests when validating the rebuilt release binary.
 
 # DLSS startup and profile behavior
 
@@ -282,24 +284,25 @@ bootstrap/resource mechanisms with PureDark AFW, but it is not release-ready:
   pumping/shimmer.
 
 Consequently Native Stereo plus the manual DLSS reapply is the recommended SHf
-configuration. The published alpha still warns that SHf is unsupported; the
-working candidate remains local and uncommitted until sustained gameplay,
-transitions and image quality are good enough.
+configuration. Alpha.2 publishes the working experimental source, backend and
+profile, but remains a prerelease until sustained gameplay, transitions and
+image quality are reproduced with the released hashes.
 
 # Remaining gaps
 
-- The runtime-tested candidate source is uncommitted and the public alpha does
-  not contain SHf support.
-- No complete hash-pinned checkpoint yet combines candidate source, backend,
-  PDB, loader, profile scripts, game config and a sustained clean-run log.
+- Source and profiles are published, but the rebuilt alpha.2 backend still
+  requires runtime reproduction against its released hashes.
+- No sustained clean-run checkpoint yet combines the alpha.2 backend, PDB,
+  loader, installed profile, game config and long gameplay log.
 - DLSS still requires a manual game-menu reapply after startup; profile L at an
   exact Ultra Performance fraction has not been telemetry-confirmed.
 - Reflected settings automation is rejected because it froze the game; direct
   NGX release remains prohibited because the game owns those handles.
 - AFW hand/weapon distortion, missing teardown and CPU-limited cadence make AFW
   unsuitable as the recommended mode.
-- The retained vtable-bootstrap, scene-capture-copy, composition, rehook and
-  direct-pose follow-ups still need an isolated source commit.
+- Source commit `cc0c43f9` isolates the retained vtable bootstrap,
+  scene-capture copy, composition, rehook and direct-pose follow-ups; their
+  cross-game regression surface still requires testing.
 - Re-test long Native gameplay, cinematics, save/load and graphics transitions
   before publishing; test actual Silent Hill 2 separately under
   `SHProto-Win64-Shipping.exe`.
@@ -315,6 +318,7 @@ transitions and image quality are good enough.
   `src/mods/vr/FFakeStereoRenderingHook.cpp`,
   `src/mods/vr/runtimes/OpenXR.cpp`
 - `TOW2_UEVR_WORKLOG.md` lines ~1699–1738 (2026-07-08/09 follow-up)
+- Published SHf source: commit `cc0c43f9`
 - Runtime evidence placeholders:
   `<evidence-root>/shf-afw-bootstrap-candidate-20260720`,
   `<evidence-root>/shf-stable-resources-candidate2-20260722`,

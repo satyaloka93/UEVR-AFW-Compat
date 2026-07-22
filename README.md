@@ -1,8 +1,9 @@
 # UEVR AFW compatibility
 
 > **Branch status — experimental alpha:** `afw-beta4-game-compat` is based on
-> PureDark's `UEVR_AFW_v1.0-beta.4` checkpoint and now includes the Avowed/TOW2
-> compatibility source plus the portable knowledge bundle. Open validation
+> PureDark's `UEVR_AFW_v1.0-beta.4` checkpoint and now includes the Avowed,
+> TOW2 and Silent Hill f compatibility source plus portable profiles and the
+> knowledge bundle. Open validation
 > items remain, so this must not be represented as a stable release.
 >
 > Start with the portable [OKF knowledge bundle](.okf/index.md), the
@@ -12,7 +13,7 @@
 > are PureDark AFW.
 >
 > **Latest experimental prerelease:**
-> [`afw-beta4-compat-v0.1.0-alpha.1`](https://github.com/satyaloka93/UEVR-AFW-Compat/releases/tag/afw-beta4-compat-v0.1.0-alpha.1)
+> [`afw-beta4-compat-v0.1.0-alpha.2`](https://github.com/satyaloka93/UEVR-AFW-Compat/releases/tag/afw-beta4-compat-v0.1.0-alpha.2)
 
 ## Current game scope
 
@@ -20,8 +21,12 @@
 |---|---|
 | Avowed | Working experimental AFW/6DoF integration; repeated crafting/loadout validation remains. |
 | The Outer Worlds 2 | Working experimental Native startup → beta.4 Previous Frame AFW; title timing and 2D transitions remain under validation. |
-| Silent Hill f | **Not working in this AFW release.** The OKF documents Joey Hodge's separate Native/UE5.7 baseline as porting reference only. |
+| Silent Hill f | Working experimental UE5.7/OpenXR injection and both-eye Native candidate. AFW is manual and visually limited; Native plus the DLSS menu workaround is recommended. Alpha.1 remains unsupported; use alpha.2 or later. |
 | Silent Hill 2 / other games | No compatibility claim until explicitly validated. |
+
+Portable Avowed and SHf profiles are under [`profiles/`](profiles/README.md) and
+are attached as a separate archive to alpha.2. Back up existing profiles and
+install them cleanly rather than merging stale scripts.
 
 ## Inherited RenderDoc integration
 

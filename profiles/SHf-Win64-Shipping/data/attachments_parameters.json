@@ -1,0 +1,408 @@
+{
+    "attachmentOffsets": [
+        {
+            "animation": "crowbar",
+            "any_child": true,
+            "any_parent": false,
+            "child": "SK_Wep_Cowbar_000",
+            "id": "BP_Wep_Melee_Crowbar_C_SK_Wep_Cowbar_000",
+            "location": [
+                -5.099999904632568,
+                3.5,
+                0.0
+            ],
+            "melee": true,
+            "melee_rotation_offset": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "parent": "BP_Wep_Melee_Crowbar_C",
+            "rotation": [
+                -11.199999809265137,
+                -90.0,
+                -28.399999618530273
+            ],
+            "scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "scoped": false,
+            "two_handed": false,
+            "use_laser": false
+        },
+        {
+            "animation": "hammer",
+            "any_child": true,
+            "any_parent": false,
+            "child": "SK_Wep_Hammer_001",
+            "id": "BP_Wep_Melee_Hammer_C_SK_Wep_Hammer_001",
+            "location": [
+                -7.699999809265137,
+                3.299999952316284,
+                5.0
+            ],
+            "melee": true,
+            "parent": "BP_Wep_Melee_Hammer_C",
+            "rotation": [
+                0.10000000149011612,
+                -90.0,
+                -17.399999618530273
+            ],
+            "scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "scoped": false,
+            "two_handed": true,
+            "use_laser": false
+        },
+        {
+            "animation": "katana",
+            "any_child": true,
+            "any_parent": false,
+            "child": "SK_Wep_Katana_000_blade",
+            "id": "BP_Wep_Melee_KatanaAlter_C_SK_Wep_Katana_000_blade",
+            "location": [
+                -5.300000190734863,
+                3.200000047683716,
+                0.0
+            ],
+            "melee": true,
+            "parent": "BP_Wep_Melee_KatanaAlter_C",
+            "rotation": [
+                -7.800000190734863,
+                -90.0,
+                -13.899999618530273
+            ],
+            "scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "scoped": false,
+            "two_handed": false,
+            "use_laser": false
+        },
+        {
+            "animation": "axe",
+            "any_child": true,
+            "any_parent": false,
+            "child": "SK_Wep_Axe_000",
+            "id": "BP_Wep_Melee_Axe_C_SK_Wep_Axe_000",
+            "location": [
+                -12.0,
+                1.2999999523162842,
+                18.399999618530273
+            ],
+            "melee": true,
+            "parent": "BP_Wep_Melee_Axe_C",
+            "rotation": [
+                -7.300000190734863,
+                -90.0,
+                -17.200000762939453
+            ],
+            "scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "scoped": false,
+            "sights_position_offset": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "two_handed": true,
+            "use_laser": false
+        },
+        {
+            "animation": "katana",
+            "any_child": true,
+            "any_parent": false,
+            "child": "SK_Wep_Katana_000_blade",
+            "id": "BP_Wep_Melee_Katana_C_SK_Wep_Katana_000_blade",
+            "location": [
+                -5.300000190734863,
+                3.200000047683716,
+                0.0
+            ],
+            "melee": true,
+            "parent": "BP_Wep_Melee_Katana_C",
+            "rotation": [
+                -7.800000190734863,
+                -90.0,
+                -13.899999618530273
+            ],
+            "scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "scoped": false,
+            "two_handed": false,
+            "use_laser": false
+        },
+        {
+            "animation": "pipe",
+            "any_child": true,
+            "any_parent": false,
+            "child": "SK_Wep_Pipe_000",
+            "id": "BP_Wep_Melee_Pipe_C_SK_Wep_Pipe_000",
+            "location": [
+                -5.900000095367432,
+                3.0999999046325684,
+                0.0
+            ],
+            "melee": true,
+            "parent": "BP_Wep_Melee_Pipe_C",
+            "rotation": [
+                -9.100000381469727,
+                -90.0,
+                -14.0
+            ],
+            "scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "scoped": false,
+            "two_handed": true,
+            "use_laser": false
+        },
+        {
+            "animation": "lantern",
+            "any_child": true,
+            "any_parent": false,
+            "child": "SK_Wep_Lantern_000",
+            "id": "BP_Wep_Melee_Lantern_C_SK_Wep_Lantern_000",
+            "location": [
+                -6.0,
+                2.0999999046325684,
+                -0.10000000149011612
+            ],
+            "melee": false,
+            "parent": "BP_Wep_Melee_Lantern_C",
+            "rotation": [
+                -87.5,
+                -90.0,
+                -0.10000000149011612
+            ],
+            "scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "scoped": false,
+            "two_handed": false,
+            "use_laser": false
+        },
+        {
+            "animation": "dagger",
+            "any_child": true,
+            "any_parent": false,
+            "child": "SK_Wep_Kaiken_000",
+            "id": "BP_Wep_Melee_Kaiken_C_SK_Wep_Kaiken_000",
+            "location": [
+                -6.199999809265137,
+                1.899999976158142,
+                2.0
+            ],
+            "melee": true,
+            "parent": "BP_Wep_Melee_Kaiken_C",
+            "rotation": [
+                -19.200000762939453,
+                -102.30000305175781,
+                -20.299999237060547
+            ],
+            "scale": [
+                0.9,
+                0.9,
+                0.9
+            ],
+            "scoped": false,
+            "two_handed": false,
+            "use_laser": false
+        },
+        {
+            "animation": "dagger",
+            "any_child": true,
+            "any_parent": false,
+            "child": "SK_Wep_Sickle_000",
+            "id": "BP_Wep_Melee_Sickle_C_SK_Wep_Sickle_000",
+            "location": [
+                -5.699999809265137,
+                2.5999999046325684,
+                0.699999988079071
+            ],
+            "melee": true,
+            "parent": "BP_Wep_Melee_Sickle_C",
+            "rotation": [
+                -19.600000381469727,
+                -99.69999694824219,
+                -21.100000381469727
+            ],
+            "scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "scoped": false,
+            "two_handed": false,
+            "use_laser": false
+        },
+        {
+            "animation": "pipe",
+            "any_child": true,
+            "any_parent": false,
+            "child": "SK_Wep_Naginata_000",
+            "id": "BP_Wep_Melee_Naginata_C_SK_Wep_Naginata_000",
+            "location": [
+                -2.5,
+                5.599999904632568,
+                -12.699999809265137
+            ],
+            "melee": true,
+            "parent": "BP_Wep_Melee_Naginata_C",
+            "rotation": [
+                -8.699999809265137,
+                -91.0,
+                -14.399999618530273
+            ],
+            "scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "scoped": false,
+            "two_handed": true,
+            "use_laser": false
+        },
+        {
+            "animation": "pipe",
+            "any_child": true,
+            "any_parent": false,
+            "child": "SK_Wep_Bat_000",
+            "id": "BP_Wep_Melee_Bat_C_SK_Wep_Bat_000",
+            "location": [
+                -5.900000095367432,
+                3.5,
+                0.0
+            ],
+            "melee": false,
+            "parent": "BP_Wep_Melee_Bat_C",
+            "rotation": [
+                -9.199999809265137,
+                -90.0,
+                -23.600000381469727
+            ],
+            "scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "scoped": false,
+            "two_handed": false,
+            "use_laser": false
+        },
+        {
+            "any_child": false,
+            "any_parent": false,
+            "child": "WeaponMesh",
+            "id": "BP_Wep_Melee_Claw_C_WeaponMesh",
+            "location": [
+                -3.5,
+                -4.0,
+                1.2000000476837158
+            ],
+            "melee": false,
+            "parent": "BP_Wep_Melee_Claw_C",
+            "rotation": [
+                0.0,
+                -90.69999694824219,
+                -1.2000000476837158
+            ],
+            "scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "scoped": false,
+            "two_handed": false,
+            "use_laser": false
+        },
+        {
+            "animation": "dagger",
+            "any_child": false,
+            "any_parent": false,
+            "child": "SK_Wep_Dagger_000",
+            "id": "BP_Wep_Melee_Dagger_C_SK_Wep_Dagger_000",
+            "location": [
+                -6.199999809265137,
+                3.0,
+                0.0
+            ],
+            "melee": true,
+            "parent": "BP_Wep_Melee_Dagger_C",
+            "rotation": [
+                -19.200000762939453,
+                -101.69999694824219,
+                -19.100000381469727
+            ],
+            "scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "scoped": false,
+            "two_handed": false,
+            "use_laser": false
+        },
+        {
+            "animation": "pipe",
+            "any_child": true,
+            "any_parent": false,
+            "child": "SK_Wep_Pipe_001",
+            "id": "BP_Wep_Melee_Pipe_Crazy_C_SK_Wep_Pipe_001",
+            "location": [
+                -5.800000190734863,
+                3.200000047683716,
+                0.0
+            ],
+            "melee": true,
+            "parent": "BP_Wep_Melee_Pipe_Crazy_C",
+            "rotation": [
+                19.799999237060547,
+                0.0,
+                -7.5
+            ],
+            "scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "scoped": false,
+            "two_handed": false,
+            "use_laser": false
+        }
+    ],
+    "baseOffsets": {
+        "location": [
+            0,
+            0,
+            0
+        ],
+        "rotation": [
+            0,
+            0,
+            0
+        ],
+        "scale": [
+            1,
+            1,
+            1
+        ]
+    }
+}

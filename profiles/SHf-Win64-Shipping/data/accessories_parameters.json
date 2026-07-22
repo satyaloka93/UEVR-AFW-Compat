@@ -1,0 +1,216 @@
+{
+    "accessories": {
+        "BP_Wep_Melee_Axe_C_SK_Wep_Axe_000": {
+            "c3022c12-4755-4a58-b449-9d68b28b8d42": {
+                "label": "New Accessory",
+                "markers": [
+                    {
+                        "activation_distance": 13.399999618530273,
+                        "activation_hand": 2,
+                        "attach_type": 0,
+                        "end_time": 0.0,
+                        "grip_animation": "pipe",
+                        "grip_priority": 1,
+                        "location": [
+                            -2.9000000953674316,
+                            -5.199999809265137,
+                            -12.800000190734863
+                        ],
+                        "rotation": [
+                            12.699999809265137,
+                            -61.900001525878906,
+                            0.0
+                        ],
+                        "socket_name": "Hold",
+                        "start_time": 0.0
+                    }
+                ]
+            }
+        },
+        "BP_Wep_Melee_Bat_C_SK_Wep_Bat_000": {
+            "a250ff6c-acea-4332-b074-a54df253397e": {
+                "label": "New Accessory",
+                "markers": [
+                    {
+                        "activation_distance": 0.0,
+                        "activation_hand": 1,
+                        "attach_type": 0,
+                        "end_time": 0.0,
+                        "grip_animation": "",
+                        "grip_priority": 1,
+                        "location": [
+                            0,
+                            0,
+                            0
+                        ],
+                        "rotation": [
+                            0,
+                            0,
+                            0
+                        ],
+                        "socket_name": "",
+                        "start_time": 0.0
+                    }
+                ]
+            },
+            "d19604f4-c4d3-489a-9c12-016599b3c696": {
+                "label": "Left Hand",
+                "markers": [
+                    {
+                        "activation_distance": 11.199999809265137,
+                        "activation_hand": 2,
+                        "attach_type": 0,
+                        "end_time": 0.0,
+                        "grip_animation": "pipe",
+                        "grip_priority": 1,
+                        "location": [
+                            -1.5,
+                            -5.099999904632568,
+                            -3.200000047683716
+                        ],
+                        "rotation": [
+                            9.199999809265137,
+                            -58.29999923706055,
+                            -14.5
+                        ],
+                        "socket_name": "Socket_Hold_Weapon_L",
+                        "start_time": 0.0
+                    }
+                ]
+            }
+        },
+        "BP_Wep_Melee_Hammer_C_SK_Wep_Hammer_001": {
+            "41830300-29f6-4d5e-840b-32a2d07a24af": {
+                "label": "New Accessory",
+                "markers": [
+                    {
+                        "activation_distance": 14.399999618530273,
+                        "activation_hand": 2,
+                        "attach_type": 0,
+                        "end_time": 0.0,
+                        "grip_animation": "pipe",
+                        "grip_priority": 1,
+                        "location": [
+                            -2.0,
+                            -4.800000190734863,
+                            -3.0
+                        ],
+                        "rotation": [
+                            12.100000381469727,
+                            -60.0,
+                            -12.0
+                        ],
+                        "socket_name": "Hold",
+                        "start_time": 0.0
+                    }
+                ]
+            }
+        },
+        "BP_Wep_Melee_Naginata_C_SK_Wep_Naginata_000": {
+            "2645b397-8f47-42d3-a339-80e91dc3fc3f": {
+                "label": "New Accessory",
+                "markers": [
+                    {
+                        "activation_distance": 13.399999618530273,
+                        "activation_hand": 2,
+                        "attach_type": 0,
+                        "end_time": 0.0,
+                        "grip_animation": "pipe",
+                        "grip_priority": 1,
+                        "location": [
+                            -1.0,
+                            -5.199999809265137,
+                            0.0
+                        ],
+                        "rotation": [
+                            13.399999618530273,
+                            -60.900001525878906,
+                            -20.0
+                        ],
+                        "socket_name": "Root",
+                        "start_time": 0.0
+                    }
+                ]
+            }
+        },
+        "BP_Wep_Melee_Pipe_C_SK_Wep_Pipe_000": {
+            "43648751-a3c6-40a1-a2c4-ae8c5ff7a6ee": {
+                "label": "Left Hand",
+                "markers": [
+                    {
+                        "activation_distance": 12.5,
+                        "activation_hand": 2,
+                        "attach_type": 0,
+                        "end_time": 0.0,
+                        "grip_animation": "pipe",
+                        "grip_priority": 1,
+                        "location": [
+                            -2.4000000953674316,
+                            -5.300000190734863,
+                            -2.700000047683716
+                        ],
+                        "rotation": [
+                            15.0,
+                            -62.20000076293945,
+                            -11.300000190734863
+                        ],
+                        "socket_name": "Socket_Hold_Weapon_L",
+                        "start_time": 0.0
+                    }
+                ]
+            },
+            "9d3b92f2-2b46-4397-9642-7739e5fb1023": {
+                "label": "New Accessory",
+                "markers": [
+                    {
+                        "activation_distance": 0.0,
+                        "activation_hand": 1,
+                        "attach_type": 0,
+                        "end_time": 0.0,
+                        "grip_animation": "",
+                        "grip_priority": 1,
+                        "location": [
+                            0,
+                            0,
+                            0
+                        ],
+                        "rotation": [
+                            0,
+                            0,
+                            0
+                        ],
+                        "socket_name": "",
+                        "start_time": 0.0
+                    }
+                ]
+            }
+        },
+        "BP_Wep_Melee_Pipe_Crazy_C_SK_Wep_Pipe_001": {
+            "dd485541-668e-4afa-95a5-5219c750444a": {
+                "label": "New Accessory",
+                "markers": [
+                    {
+                        "activation_distance": 12.800000190734863,
+                        "activation_hand": 2,
+                        "attach_type": 0,
+                        "end_time": 0.0,
+                        "grip_animation": "pipe",
+                        "grip_priority": 1,
+                        "location": [
+                            -5.599999904632568,
+                            1.5,
+                            -3.5999999046325684
+                        ],
+                        "rotation": [
+                            7.900000095367432,
+                            -138.0,
+                            -12.0
+                        ],
+                        "socket_name": "Socket_Hold_Weapon_L",
+                        "start_time": 0.0
+                    }
+                ]
+            }
+        }
+    }
+}

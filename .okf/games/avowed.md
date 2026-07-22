@@ -8,7 +8,7 @@ tags:
 - openvr
 - openxr
 - psvr2
-timestamp: '2026-07-20T19:41:50+09:00'
+timestamp: '2026-07-22T14:30:00+09:00'
 ---
 
 # Status
@@ -70,6 +70,12 @@ The exact known-good AppData files are pinned by sha256 — see
 
 An AFW/frame-warp-capable port of this working state exists on the PureDark
 branch — see [/projects/puredark-afw-integration.md](../projects/puredark-afw-integration.md).
+
+Alpha.2 includes a sanitized `profiles/Avowed-Win64-Shipping/` snapshot with the
+current AFW/OpenXR config, hardened `Avowed6dof.lua`, active Lua dependencies,
+data and controller bindings. Install it into a clean profile directory rather
+than merging old scripts. Its tested `data/avowed.txt` retains optional
+`CHEAT_*` regeneration settings, which users should review before playing.
 
 # Crafting-table attachment crash
 

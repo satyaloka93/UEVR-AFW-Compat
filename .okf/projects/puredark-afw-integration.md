@@ -1,7 +1,7 @@
 ---
 type: project
 title: PureDark AFW integration — ongoing effort state
-description: Live state of the narrow Avowed/TOW2/SHf compatibility port onto PureDark AFW; TOW2 beta.4 Previous Frame is validated, while SHf has a working local Native/AFW candidate that remains uncommitted and unsupported in the public alpha.
+description: Live state of the narrow Avowed/TOW2/SHf compatibility port onto PureDark AFW; TOW2 beta.4 Previous Frame is validated, and source commit cc0c43f9 plus alpha.2 publish SHf's working experimental Native/AFW candidate and profiles.
 tags:
 - afw
 - puredark
@@ -30,9 +30,9 @@ standing rules are in [narrow port scope](../decisions/narrow-port-scope.md).
   only audited corrections are intended for publication with attribution.
 - Experimental deployment remains isolated at `<deploy-dir>`; the primary UEVR
   installation remains untouched.
-- The Avowed/TOW2 integration source is published experimentally on this
-  branch. Open validation remains explicit; publication does not promote it to
-  stable status.
+- The Avowed/TOW2 integration and SHf candidate source are published
+  experimentally on this branch. Open validation remains explicit; publication
+  does not promote them to stable status.
 
 # Runtime and build dependency model
 
@@ -48,25 +48,34 @@ standing rules are in [narrow port scope](../decisions/narrow-port-scope.md).
 - See repository file `docs/PDAFW_RUNTIME.md` before building or packaging;
   never mistake the generated dummy DLL for the real runtime.
 
-# Public alpha release
+# Public alpha releases
+
+## Alpha.2
+
+- Prerelease: `afw-beta4-compat-v0.1.0-alpha.2`
+- URL: `https://github.com/satyaloka93/UEVR-AFW-Compat/releases/tag/afw-beta4-compat-v0.1.0-alpha.2`
+- SHf backend source commit: `cc0c43f9`
+- Adds the rebuilt SHf compatibility backend plus separate sanitized Avowed and
+  SHf profile assets. The SHf profile starts Native and contains no rejected
+  automatic DLSS reset helper.
+- Exact binary/archive hashes are published in the attached release manifests.
+- Keep alpha.2 marked prerelease until Avowed/TOW2 and sustained SHf gameplay
+  are reproduced using the released hashes.
+
+## Alpha.1 historical checkpoint
 
 - Prerelease: `afw-beta4-compat-v0.1.0-alpha.1`
-- URL: `https://github.com/satyaloka93/UEVR-AFW-Compat/releases/tag/afw-beta4-compat-v0.1.0-alpha.1`
 - Source/build commit: `9dfb9746521c5c8d9a317c9d11ed6a7875e1fa6a`
-- The gated submodule fetched `9034a857` directly from `PureDark/UESDK`; no
-  UESDK source or compatibility patch is redistributed by this fork.
-- Neutral-path MSVC Release build completed successfully; backend and PDB scans
-  found no prior username or private workspace path.
+- Alpha.1 remains immutable and unsupported for SHf.
 - Published hashes:
   - `UEVRBackend.dll`: `701a5971e88d9d9d0021ab47de5f6d62f9ba31d506f82718fbcb820d8537068a`
   - `UEVRBackend.pdb`: `fea73312d4cee7665d7fecd81cd4880ebad17a27c68300a6ecb40a361d4c9555`
-  - `openvr_api.dll`: `41e0f5a156e802030bdd5b8bd48f26b90b076e821f506f522e6f77dba3999b95`
-  - `UEVRPluginNullifier.dll`: `d6e5707479b8042fd0d1e4d1c73d52f58af90dea1e54aa44ed70b26f0d68b66e`
   - main ZIP: `0079f9adf756e044e48481f87ea344a8650561e9f1482f0c59a5b87a02631357`
   - symbols ZIP: `8e2618424b010232c42fbf534c68a079fab7446ac123ff98ec46800474094533`
-- The publication rebuild is compile-validated but has not replaced the earlier
-  gameplay-tested local binary checkpoint. Keep the release marked prerelease
-  until users reproduce Avowed/TOW2 behavior with these exact hashes.
+
+Both releases use gated UESDK `9034a857`; no UESDK source or compatibility
+patch is redistributed. The backend callers and official beta.4 PDAFW runtime
+remain one ABI checkpoint.
 
 # Avowed state retained
 
@@ -141,7 +150,7 @@ ghosting only after reaching gameplay.
 
 # SHf local compatibility candidate
 
-A narrow, uncommitted SHf candidate now ports the Joey-derived UE5.7/OpenXR
+Published source commit `cc0c43f9` ports the Joey-derived UE5.7/OpenXR
 bootstrap into the beta.4 destination. Stable UI reuse, bounded setup retries,
 owned scene/scene-capture copies, right-eye composition fallback, direct RHI
 pose enqueue and rehook suppression produced reliable injection and both-eye
@@ -154,8 +163,8 @@ reapply is therefore recommended. AFW startup, AFW → Native and automatic DLSS
 settings reflection are rejected. The exact profile, measurements, hashes and
 limitations are in [Silent Hill f](../games/silent-hill-f.md).
 
-This candidate is not in `afw-beta4-compat-v0.1.0-alpha.1`; the public release's
-SHf unsupported warning remains correct.
+Alpha.2 includes the candidate backend and clean profile. Alpha.1 remains an
+immutable historical release whose SHf unsupported warning is still correct.
 
 # Standing findings
 
@@ -180,9 +189,9 @@ SHf unsupported warning remains correct.
 5. Repeat Avowed crafting, weapon replacement and loadout transitions; confirm
    the stale-attachment guard protects the original dump path without breaking
    weapon recovery.
-6. Preserve the working SHf candidate as a complete source/binary/profile/log
-   checkpoint, repeat sustained Native gameplay and transitions, and leave SHf
-   unsupported publicly until image quality and lifecycle limits are resolved.
+6. Reproduce the alpha.2 SHf backend/profile hashes across sustained Native
+   gameplay and transitions; keep AFW experimental until image quality and
+   lifecycle limits are resolved.
    Separately regression-test actual SH2 and PSVR2 input with beta.4.
 7. Remove the temporary hang-dump watchdog after launch reliability is proven.
 8. Keep releases marked prerelease until these checks pass; retain temporary

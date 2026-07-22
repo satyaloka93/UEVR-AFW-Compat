@@ -1,0 +1,56 @@
+This mod has several configurable options. They are included here.
+The mod ships with recommended defaults.
+
+Note: after a level load, you may need to use "Y" button to swap weapons
+      to reestablish the weapons in hands. Do this if they're floating.
+
+The gestures section. 
+- This provides melee swings. Swing from left to right or right to left 
+  for normal melee and combos. Your hits cannot be faster than the 
+  equipped weapon's speed stats. You can swing daggers faster than hammers.
+- The shield is used by holding the shield up to your head. You should see
+  the block UI. 
+- Charge attacks are possible by holding the controller to your head
+  and feeling it vibrate, hold it to charge and release it down
+  to swing. If you hold it too long, it will auto release.
+- Two handed swords you block holding the sword pointing counter clockwise
+  like at 9:00 position (to the left). You will see the block UI.
+- When dual wielding with 1 melee weapon and 1 ranged, the ranged weapon 
+  aims where the melee weapons will hit (and controls the UI).
+- When wielding a 2 handed sword, always in right hand, the left hand actually
+  aims the strike locations and points at loot etc. This allows you to block
+  without the UI moving off to the side or your swings to change where 
+  your hits occur.
+- When charging a melee weapon, the other hand is used to aim the charge
+  because otherwise the charge aims at the sky.
+
+There are some minor cheats included you can enable or disable.
+These are health regen and essence regen. When enabled, these
+things will regen without having to constantly eat food or camp.
+Default is full regen in 60 seconds, so 1.66% per second. Setting
+to 0% turns this off.
+
+Ranged aim has been tightened up so things like wand shots now
+go where you're aiming instead of seemingly being random. When
+wielding two ranged weapons, aim changes to the last hand fired.
+
+Grimoire you can use right stick up, down, left, right for X Y A B
+when holding down the left trigger with grimoire equipped.
+
+If the weapon hooks appear to stop working, you can toggle the
+loadout using Y and it *should* be restored.
+
+Recommended game menu changes:
+Under Game:
+ Disable aim assist, turn all head bobbing and camera shake to off,
+ power attack canceling off, sprint mode to hold if you're using the mod's
+ remaps at all.
+Under UI:
+ Disable HUD Shake
+Under Accessibility:
+ Disable animated camera strength
+ Set sprint toggle to "toggle" not "hold" if using the right stick
+ up remap.
+Under controller:
+ Disable vibration (let the mod handle this)
+ Main Hand and Off Hand actions must remain RT and LT (defaults).

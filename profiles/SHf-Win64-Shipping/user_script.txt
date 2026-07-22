@@ -1,0 +1,39 @@
+# Stabilize present chain and keep scene capture path alive for stereo.
+
+r.FidelityFX.FI.Enabled 0
+r.FidelityFX.FI.OverrideSwapChainDX12 0
+r.FidelityFX.FI.AllowAsyncWorkloads 0
+r.FidelityFX.FSR3.Enabled 0
+r.FidelityFX.FSR3.UseNativeDX12 0
+r.FidelityFX.FSR3.UseRHI 0
+
+r.DisableDistortion 1
+
+r.SceneCapture.AllowRenderInMainRenderer 1
+r.SceneCapture.DepthPrepassOptimization 0
+r.SceneCapture.CullByDetailMode 0
+
+# Existing perf toggles
+r.VolumetricCloud 0
+r.Lumen.Reflections.Temporal 0
+r.Lumen.Reflections.Allow 0
+
+r.FinishCurrentFrame 0
+r.OneFrameThreadLag 1
+r.Tonemapper.Quality 0
+r.MotionBlur.Max 0
+r.MotionBlurQuality 0
+r.DefaultFeature.MotionBlur 0
+r.SceneColorFringe.Max 0
+r.SceneColorFringeQuality 0
+r.Tonemapper.GrainQuantization 0
+r.DetailMode 0
+r.BloomQuality 0
+r.Bloom 0
+r.FilmGrain 0
+r.TemporalAA.Quality 0
+r.Shadow.Virtual.Enable 0
+# SHf Lumen VR perf tuning - keep Lumen enabled but reduce probe cost
+r.Lumen.ScreenProbeGather.Quality 0.5
+r.Lumen.ScreenProbeGather.DownsampleFactor 32
+r.TemporalAA.Upsampling 1

@@ -1,0 +1,11 @@
+r.SSFS 0
+r.DistanceFieldShadowing 0
+r.GlobalDistanceField 0
+r.ViewDistanceScale 0.6
+r.MipMapLodBias -1
+r.StaticMeshLODBias -1
+r.postprocessing.disablematerials 1
+r.FinishCurrentFrame 0
+r.DetailMode 0
+r.TextureStreaming 1
+r.Streaming.LimitPoolSizeToVRAM 1

@@ -14,7 +14,7 @@ the fixes that produced them, and the playbooks for analysing new problems.
 * [Avowed](games/avowed.md) — working 6DoF/AFW state and crafting attachment-lifetime guard.
 * [The Outer Worlds 2](games/outer-worlds-2.md) — safe Native startup and beta.4 Previous Frame AFW zero-ghosting checkpoint.
 * [Hogwarts Legacy](games/hogwarts-legacy.md) — transition-cooldown crash fix.
-* [Silent Hill f](games/silent-hill-f.md) — runtime-tested local Native/UE5.7 candidate with bounded injection resources and a manual DLSS workaround; AFW remains limited and the public alpha unsupported.
+* [Silent Hill f](games/silent-hill-f.md) — alpha.2 publishes the runtime-tested Native/UE5.7 injection candidate and profile; DLSS still needs a manual workaround and AFW remains limited.
 
 ## Fixes
 

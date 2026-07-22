@@ -16,7 +16,7 @@ game shows the same symptom.
 
 ## Present / OpenXR pipeline
 
-* [SHf UE5.7 OpenXR bootstrap](shf-ue57-openxr-bootstrap.md) — validated startup discovery, recoverable OpenXR ownership and bounded owned D3D12 scene/UI resources, now runtime-tested in a local beta.4 Native candidate.
+* [SHf UE5.7 OpenXR bootstrap](shf-ue57-openxr-bootstrap.md) — validated startup discovery, recoverable OpenXR ownership and bounded D3D12 scene/UI resources, published in SHf source commit `cc0c43f9`.
 * [Authoritative wait-frame time](openxr-authoritative-wait-frame.md) — fixes XR_ERROR_TIME_INVALID / frame-discarded loops.
 * [Backbuffer fallback + early XR frame prep](tow2-backbuffer-fallback-openxr-prep.md) — title/startup Present-path survival (TOW2).
 * [CVar scanner bypass](tow2-cvar-scanner-bypass.md) — decisive fix for the original TOW2 title-splash stall.

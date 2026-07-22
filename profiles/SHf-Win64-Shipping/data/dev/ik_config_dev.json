@@ -1,0 +1,77 @@
+{
+    "uevr_ik_active": true,
+    "uevr_ik_active_profile": 2,
+    "uevr_ik_allow_stretch": true,
+    "uevr_ik_allow_wrist_affects_elbow": true,
+    "uevr_ik_animation_location_offset": [
+        0.0,
+        0.0,
+        0.0
+    ],
+    "uevr_ik_animation_mesh_combo": 8,
+    "uevr_ik_animation_mesh_combo_show_children": false,
+    "uevr_ik_animation_rotation_offset": [
+        0.0,
+        0.0,
+        0.0
+    ],
+    "uevr_ik_end_bone": "hand_r",
+    "uevr_ik_end_bone_combo": 224,
+    "uevr_ik_end_bone_offset": [
+        -6.603099822998047,
+        1.5,
+        2.5
+    ],
+    "uevr_ik_end_bone_rotation": [
+        -157.0,
+        -8.0,
+        -174.0
+    ],
+    "uevr_ik_end_control_type": 2,
+    "uevr_ik_joint_bone": "lowerarm_r",
+    "uevr_ik_joint_bone_combo": 223,
+    "uevr_ik_label": "Right",
+    "uevr_ik_lower_twist_bone_1": "",
+    "uevr_ik_lower_twist_bone_1_combo": 1,
+    "uevr_ik_lower_twist_bone_2": "",
+    "uevr_ik_lower_twist_bone_2_combo": 1,
+    "uevr_ik_lower_twist_bone_3": "",
+    "uevr_ik_lower_twist_bone_3_combo": 1,
+    "uevr_ik_lower_twist_bone_pitch_1": 0.0,
+    "uevr_ik_lower_twist_bone_pitch_2": 0.0,
+    "uevr_ik_lower_twist_bone_pitch_3": 0.0,
+    "uevr_ik_lower_twist_bone_roll_1": 0.0,
+    "uevr_ik_lower_twist_bone_roll_2": 0.0,
+    "uevr_ik_lower_twist_bone_roll_3": 0.0,
+    "uevr_ik_lower_twist_bone_yaw_1": 0.0,
+    "uevr_ik_lower_twist_bone_yaw_2": 0.0,
+    "uevr_ik_lower_twist_bone_yaw_3": 0.0,
+    "uevr_ik_max_stretch_scale": 0.859000027179718,
+    "uevr_ik_mesh": "Pawn.Mesh",
+    "uevr_ik_mesh_combo": 8,
+    "uevr_ik_mesh_combo_show_children": false,
+    "uevr_ik_mesh_location_offset": [
+        -7.804999828338623,
+        2.188800096511841,
+        -84.55509948730469
+    ],
+    "uevr_ik_mesh_rotation_offset": [
+        0.0,
+        -84.0,
+        0.0
+    ],
+    "uevr_ik_rename_profile_input": "",
+    "uevr_ik_rig_label": "",
+    "uevr_ik_show_debug_meshes": false,
+    "uevr_ik_smoothing": 0,
+    "uevr_ik_solver_select": 1,
+    "uevr_ik_solver_type": 1,
+    "uevr_ik_sort_order": 1,
+    "uevr_ik_start_bone": "upperarm_r",
+    "uevr_ik_start_bone_combo": 222,
+    "uevr_ik_start_stretch_ratio": 0.0,
+    "uevr_ik_wrist_bone": "",
+    "uevr_ik_wrist_bone_combo": 1,
+    "uevr_ik_wrist_twist_influence": 0.3779999911785126,
+    "uevr_ik_wrist_twist_max": 74.625
+}

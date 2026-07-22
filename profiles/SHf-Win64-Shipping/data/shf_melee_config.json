@@ -1,0 +1,16 @@
+{
+    "shf_melee_clawGTipOffset": 20.0,
+    "shf_melee_clawTipOffset": 18.0,
+    "shf_melee_debugSphere": false,
+    "shf_melee_heavySpeed": 505.0,
+    "shf_melee_hitBuffer": 56.0,
+    "shf_melee_hitCooldown": 0.8,
+    "shf_melee_hitHalfBuffer": 45.0,
+    "shf_melee_hitHalfHeight": 90.0,
+    "shf_melee_hitRadius": 45.0,
+    "shf_melee_minSwingSpeed": 300.0,
+    "shf_melee_weaponLength": 80.0,
+    "uevr_input_smoothTurnSpeed": 80,
+    "uevr_input_snapAngle": 30,
+    "uevr_input_useSnapTurn": false
+}
