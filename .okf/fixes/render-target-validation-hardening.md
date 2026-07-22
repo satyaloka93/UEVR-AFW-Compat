@@ -28,13 +28,13 @@ In `dependencies/submodules/UESDK/src/sdk/FRenderTarget.{cpp,hpp}` and
   `GetDisplayGamma` and the render-target-texture index before accepting.
 - Refuse to fall back to the first plausible candidate when validation fails —
   fail cleanly and let the caller disable scene capture instead
-  ([/fixes/native-stereo-safe-activation.md](/fixes/native-stereo-safe-activation.md)).
+  ([/fixes/native-stereo-safe-activation.md](native-stereo-safe-activation.md)).
 - Added `FRenderTarget::reset_offsets()` and an accessor for the discovered
   `GetRenderTargetTexture` index.
 
 # Principle
 
-Same as the [dynamic AddObject guard](/fixes/tow2-addobject-candidate-guard.md)
+Same as the [dynamic AddObject guard](tow2-addobject-candidate-guard.md)
 on the AFW branch: **a candidate pointer/offset must be positively validated
 before use; skipping is safer than guessing.** This shows up in three places
 now — render-target vtables, UObject AddObject candidates, and scene-capture

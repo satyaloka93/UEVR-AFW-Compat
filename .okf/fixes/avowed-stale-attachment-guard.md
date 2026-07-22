@@ -73,9 +73,9 @@ Candidate artifacts:
 
 # Related
 
-- [Avowed working state](/games/avowed.md)
-- [TOW2 AddObject validation](/fixes/tow2-addobject-candidate-guard.md)
-- [Windows minidump analysis](/playbooks/crash-dump-analysis.md)
+- [Avowed working state](../games/avowed.md)
+- [TOW2 AddObject validation](tow2-addobject-candidate-guard.md)
+- [Windows minidump analysis](../playbooks/crash-dump-analysis.md)
 
 # Citations
 

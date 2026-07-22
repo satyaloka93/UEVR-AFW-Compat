@@ -33,8 +33,8 @@ In `src/mods/VR.{cpp,hpp}` and `src/mods/vr/Bindings.cpp`:
 # Context
 
 This is what made the OpenVR-era Avowed profile playable —
-[/games/avowed.md](/games/avowed.md). For the later OpenXR/PSVR2 input work see
-[/fixes/psvr2-triangle-dpad.md](/fixes/psvr2-triangle-dpad.md).
+[/games/avowed.md](../games/avowed.md). For the later OpenXR/PSVR2 input work see
+[/fixes/psvr2-triangle-dpad.md](psvr2-triangle-dpad.md).
 
 # Citations
 

@@ -13,7 +13,7 @@ resource: src/mods/vr/CVarManager.cpp
 # Symptom
 
 Title splash renders, then the game sits "waiting" forever. No crash, no dump —
-a stall. See [/playbooks/log-signature-triage.md](/playbooks/log-signature-triage.md)
+a stall. See [/playbooks/log-signature-triage.md](../playbooks/log-signature-triage.md)
 for how this was distinguished from a crash.
 
 # Fix
@@ -38,7 +38,7 @@ Executable-scoped to TOW2:
 
 When a game stalls at title with UEVR attached, suspect **anything that scans
 or pokes reflected engine memory during startup** before suspecting the render
-pipeline. Related: [/games/outer-worlds-2.md](/games/outer-worlds-2.md).
+pipeline. Related: [/games/outer-worlds-2.md](../games/outer-worlds-2.md).
 
 # Citations
 

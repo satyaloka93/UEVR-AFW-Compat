@@ -46,7 +46,7 @@ In `src/mods/UObjectHook.{cpp,hpp}`:
 Implemented and important, but the live Avowed profile still runs conservative
 fallback attach (`NATIVE_BONE_DRIVER_OWNS_WEAPONS=0`,
 `UObjectHook_LocalAvatarNativeBoneDriver=false`) — see
-[/games/avowed.md](/games/avowed.md). Treat native ownership as the long-term
+[/games/avowed.md](../games/avowed.md). Treat native ownership as the long-term
 path, not the default.
 
 # Citations

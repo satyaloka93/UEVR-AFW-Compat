@@ -36,7 +36,7 @@ Several regressions came from losing or mis-restoring the other two.
    PDB, plugin DLLs, loaders) in the worklog. Treat a closed runtime DLL and its
    source header/caller ABI as one checkpoint; do not hot-swap only
    `PDAFWPlugin.dll`. This is what makes dump symbolization trustworthy
-   ([/playbooks/crash-dump-analysis.md](/playbooks/crash-dump-analysis.md)) and
+   ([/playbooks/crash-dump-analysis.md](crash-dump-analysis.md)) and
    A/B tests honest.
 6. **Safety bundles before risky branch work:** copy the full displaced state
    (backend, PDB, profile, INI, last log) to a dated folder under
@@ -51,9 +51,9 @@ Several regressions came from losing or mis-restoring the other two.
    disappear. If a diagnostic build succeeds, save its backend/PDB/config/log
    before rebuilding; absence of a dump is evidence only that the stall did not
    occur in that run. See
-   [/playbooks/in-process-hang-dump.md](/playbooks/in-process-hang-dump.md).
+   [/playbooks/in-process-hang-dump.md](in-process-hang-dump.md).
 
 # Related
 
-- [/playbooks/staged-fix-methodology.md](/playbooks/staged-fix-methodology.md)
-- [/games/avowed.md](/games/avowed.md) — the profile this discipline protects
+- [/playbooks/staged-fix-methodology.md](staged-fix-methodology.md)
+- [/games/avowed.md](../games/avowed.md) — the profile this discipline protects

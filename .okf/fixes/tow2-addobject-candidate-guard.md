@@ -56,16 +56,16 @@ The warning below is expected and means the guard rejected an unsafe call:
 # Principle
 
 This is the UObject equivalent of
-[render-target discovery hardening](/fixes/render-target-validation-hardening.md):
+[render-target discovery hardening](render-target-validation-hardening.md):
 validate identity and hierarchy against an authoritative owner before use;
 skipping incomplete hook bookkeeping is safer than admitting an unverified
 pointer.
 
 # Related
 
-- [TOW2 view-extension analyzer timing](/fixes/tow2-view-extension-analyzer-threshold.md)
-- [In-process hang dumps](/playbooks/in-process-hang-dump.md)
-- [The Outer Worlds 2 state](/games/outer-worlds-2.md)
+- [TOW2 view-extension analyzer timing](tow2-view-extension-analyzer-threshold.md)
+- [In-process hang dumps](../playbooks/in-process-hang-dump.md)
+- [The Outer Worlds 2 state](../games/outer-worlds-2.md)
 
 # Citations
 

@@ -16,17 +16,17 @@ timestamp: '2026-07-20T19:41:50+09:00'
 Playable in 6DoF VR. The game's patch broke UEVR's original stereo discovery;
 recovery took four layers, in order of importance:
 
-1. **Stereo recovery** — [/fixes/stereo-vtable-scan-widening.md](/fixes/stereo-vtable-scan-widening.md)
-   plus [/fixes/native-stereo-safe-activation.md](/fixes/native-stereo-safe-activation.md)
-   and [/fixes/render-target-validation-hardening.md](/fixes/render-target-validation-hardening.md).
-2. **Local avatar / hands / weapons** — [/fixes/local-avatar-native-bone-driver.md](/fixes/local-avatar-native-bone-driver.md).
-3. **Controller input** — [/fixes/openvr-analog-trigger-fallback.md](/fixes/openvr-analog-trigger-fallback.md)
-   and, on the later OpenXR path, [/fixes/psvr2-triangle-dpad.md](/fixes/psvr2-triangle-dpad.md).
+1. **Stereo recovery** — [/fixes/stereo-vtable-scan-widening.md](../fixes/stereo-vtable-scan-widening.md)
+   plus [/fixes/native-stereo-safe-activation.md](../fixes/native-stereo-safe-activation.md)
+   and [/fixes/render-target-validation-hardening.md](../fixes/render-target-validation-hardening.md).
+2. **Local avatar / hands / weapons** — [/fixes/local-avatar-native-bone-driver.md](../fixes/local-avatar-native-bone-driver.md).
+3. **Controller input** — [/fixes/openvr-analog-trigger-fallback.md](../fixes/openvr-analog-trigger-fallback.md)
+   and, on the later OpenXR path, [/fixes/psvr2-triangle-dpad.md](../fixes/psvr2-triangle-dpad.md).
 4. **Game-specific Lua layer** — `%APPDATA%/UnrealVRMod/Avowed-Win64-Shipping/scripts/Avowed6dof.lua`
    (grew 2404 → 4622 lines: weapon attach/loadout recovery, slot property-scan
    fallback, aim-hand lock, debounce/cooldown, perf counters).
 
-OpenXR performance additionally depends on [/fixes/openxr-authoritative-wait-frame.md](/fixes/openxr-authoritative-wait-frame.md).
+OpenXR performance additionally depends on [/fixes/openxr-authoritative-wait-frame.md](../fixes/openxr-authoritative-wait-frame.md).
 
 # Known-good profile (OpenXR/PSVR2 checkpoint, 2026-04-23)
 
@@ -46,7 +46,7 @@ VR_SnapTurn=false
 `DIRECT_WEAPON_DRIVE=0`, `NATIVE_BONE_DRIVER_OWNS_WEAPONS=0`, `USE_ATTACHED_WIDGETS=0`.
 
 The exact known-good AppData files are pinned by sha256 — see
-[/playbooks/checkpoint-and-recovery.md](/playbooks/checkpoint-and-recovery.md).
+[/playbooks/checkpoint-and-recovery.md](../playbooks/checkpoint-and-recovery.md).
 **Recovery rule:** restore the hashed known-good `Avowed6dof.lua`
 (`f2b7df6d…`), *not* `Avowed6dof.lua.copy` — they are not equivalent.
 
@@ -69,7 +69,7 @@ The exact known-good AppData files are pinned by sha256 — see
 # AFW variant
 
 An AFW/frame-warp-capable port of this working state exists on the PureDark
-branch — see [/projects/puredark-afw-integration.md](/projects/puredark-afw-integration.md).
+branch — see [/projects/puredark-afw-integration.md](../projects/puredark-afw-integration.md).
 
 # Crafting-table attachment crash
 
@@ -79,7 +79,7 @@ scene component whose vtable had already become a heap pointer. The dump proves
 this was stale attachment lifetime/virtual dispatch, not PDAFW, OpenXR, GPU, or
 Lua performance. An Avowed-scoped module-backed-vtable guard now detaches stale
 state before ProcessEvent and revalidates deferred restores — see
-[/fixes/avowed-stale-attachment-guard.md](/fixes/avowed-stale-attachment-guard.md).
+[/fixes/avowed-stale-attachment-guard.md](../fixes/avowed-stale-attachment-guard.md).
 
 One immediate crafting retest completed without a crash, but did not emit the
 protective stale-detach telemetry; repeat crafting/loadout transitions remain

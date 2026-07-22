@@ -6,4 +6,4 @@ which experiments were rejected (with reasons).
 * [Avowed](avowed.md) — playable 6DoF/AFW; stereo/avatar/Lua fixes plus a dump-derived stale crafting-attachment guard under repeated validation.
 * [The Outer Worlds 2](outer-worlds-2.md) — guarded Native/OpenXR startup, then beta.4 Previous Frame AFW with zero observed ghosting; title timing remains under validation.
 * [Hogwarts Legacy](hogwarts-legacy.md) — post-transition cooldown fixed TaskGraph crashes; direct-pose fallback rejected.
-* [Silent Hill f](silent-hill-f.md) — Joey-derived Native UE5.7/OpenXR baseline through `57shf54`/`shf57`; current PureDark AFW compatibility release is non-working for SHf.
+* [Silent Hill f](silent-hill-f.md) — local UE5.7/OpenXR candidate injects reliably and runs both-eye Native with bounded resources; DLSS still needs a manual reapply, AFW is limited, and the public alpha remains unsupported.

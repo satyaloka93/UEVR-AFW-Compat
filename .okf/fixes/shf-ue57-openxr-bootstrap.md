@@ -1,7 +1,7 @@
 ---
 type: fix
 title: Silent Hill f — UE5.7 OpenXR and render-target bootstrap
-description: 'The baseline UEVR bring-up for SHf required a staged UE5.7 startup path: validated/cached hook discovery, fail-soft viewport and LocalPlayer handling, bounded CVar and D3D retries, OpenXR frame-loop recovery, and SHf-owned stable D3D12 scene/UI resources.'
+description: 'SHf injection requires a staged UE5.7/OpenXR startup plus bounded, UEVR-owned scene/UI resources; a local PureDark beta.4 candidate now validates both-eye Native operation without runaway allocation, but the published alpha remains unsupported.'
 tags:
 - silent-hill-f
 - shf
@@ -11,14 +11,16 @@ tags:
 - startup
 - render-target
 - native-stereo
-timestamp: '2026-07-20T00:00:00Z'
+timestamp: '2026-07-22T10:48:00+09:00'
 ---
 
 # Scope
 
-This fix documents the working **Joey Hodge baseline UEVR lineage**. It is a
-porting reference, not a claim of support in the current PureDark AFW
-compatibility release: that release does not yet run SHf.
+This fix documents the working **Joey Hodge baseline UEVR lineage** and the
+bounded resource rules validated by the current local PureDark beta.4 port.
+The local candidate now injects and renders both eyes in Native Stereo, but it
+is uncommitted and is not part of prerelease `afw-beta4-compat-v0.1.0-alpha.1`;
+the published alpha therefore remains unsupported for SHf.
 
 # Problem
 
@@ -71,6 +73,34 @@ state remains a checkpoint gap.
 Later commits `258f5983` and `529d1644` handled SHf's mono cinematic as a
 backend-controlled 2D transition. They improve playability but are not required
 to understand the original injection/bootstrap failure.
+
+# Local PureDark beta.4 validation
+
+The first attempted port was unsafe: it created 1,289 UI textures and performed
+1,290 D3D12 texture setups in roughly 52 seconds, consumed nearly all VRAM,
+flattened textures and left the Native right eye black. It was reverted rather
+than tuned in place.
+
+The runtime-tested replacement added:
+
+- stable UI texture reuse with a four-attempt per-resolution circuit breaker;
+- 500 ms throttling between D3D setup retries;
+- owned stable scene and scene-capture copies;
+- explicit right-eye composition fallback;
+- direct SHf RHI pose enqueue;
+- redundant D3D rehook suppression while the Windows message hook remains
+  intact.
+
+A validated Native run produced one UI allocation, 327 reuse reports, five
+bounded D3D setup passes, no circuit-breaker activation and no backbuffer-fail
+loop. Both eyes rendered and AFW could subsequently be selected manually
+without the earlier VRAM runaway. These results validate the injection/resource
+fix, not AFW image quality or publication readiness.
+
+Use a fresh process, inject early and start with `VR_RenderingMethod=0`. Late
+attachment and AFW-at-startup have not been validated. Keep warning-level
+logging during performance tests; high-frequency texture diagnostics can
+dominate the log and add avoidable I/O overhead.
 
 # Key implementation rules
 
@@ -153,18 +183,24 @@ or continuous renderer setup means the working path was not reached.
 
 # Scope and porting rule
 
-This was a Joey-derived baseline UEVR/UE5.7 compatibility bring-up, not an AFW
-fix. The current PureDark AFW release remains non-working for SHf. Port the
-validated startup, OpenXR ownership and owned-resource pieces narrowly. Do not
-copy the original diagnostic/RenderInspector subsystem wholesale into another
-branch. Preserve exact UESDK compatibility when reproducing the checkpoint.
+This remains primarily a Joey-derived UEVR/UE5.7 injection and resource-lifetime
+fix. The local PureDark beta.4 port proves those pieces can coexist with AFW,
+but the public alpha does not include the candidate and AFW is not the
+recommended SHf mode. Port startup, OpenXR ownership and owned-resource pieces
+narrowly; do not copy the original diagnostic/RenderInspector subsystem
+wholesale. Preserve exact UESDK compatibility and treat PDAFW runtime, header
+and callers as one checkpoint.
+
+The DLSS startup-quality workaround and AFW visual/performance limits are
+tracked in [the SHf game profile](../games/silent-hill-f.md), not generalized as
+part of this injection fix.
 
 # Related
 
-- [/games/silent-hill-f.md](/games/silent-hill-f.md)
-- [/fixes/native-stereo-safe-activation.md](/fixes/native-stereo-safe-activation.md)
-- [/fixes/render-target-validation-hardening.md](/fixes/render-target-validation-hardening.md)
-- [/playbooks/checkpoint-and-recovery.md](/playbooks/checkpoint-and-recovery.md)
+- [/games/silent-hill-f.md](../games/silent-hill-f.md)
+- [/fixes/native-stereo-safe-activation.md](native-stereo-safe-activation.md)
+- [/fixes/render-target-validation-hardening.md](render-target-validation-hardening.md)
+- [/playbooks/checkpoint-and-recovery.md](../playbooks/checkpoint-and-recovery.md)
 
 # Citations
 
@@ -174,6 +210,9 @@ branch. Preserve exact UESDK compatibility when reproducing the checkpoint.
   `f10ec09a` and `835dbccb` → `c199a185`; final lineage `7bbbbf3a`,
   `b8bb816e`, `258f5983`, `529d1644`
 - Tags: `57shf54`, `shf57`
+- Runtime evidence placeholders:
+  `<evidence-root>/shf-afw-bootstrap-candidate-20260720` and
+  `<evidence-root>/shf-stable-resources-candidate2-20260722`
 - Code: `src/Framework.cpp`, `src/mods/VR.cpp`,
   `src/mods/vr/CVarManager.cpp`, `src/mods/vr/D3D12Component.cpp`,
   `src/mods/vr/FFakeStereoRenderingHook.cpp`,

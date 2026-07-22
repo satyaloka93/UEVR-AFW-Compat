@@ -61,9 +61,9 @@ the canonical place now?** They should not reproduce the task transcript.
 
 Commit `.okf/` independently from unrelated source changes when practical so
 knowledge diffs are reviewable. The root log entry and concept edits belong in
-the same commit. See [checkpointing and recovery](/playbooks/checkpoint-and-recovery.md).
+the same commit. See [checkpointing and recovery](checkpoint-and-recovery.md).
 
 # Related
 
-- [Staged fix methodology](/playbooks/staged-fix-methodology.md)
-- [Checkpointing and recovery](/playbooks/checkpoint-and-recovery.md)
+- [Staged fix methodology](staged-fix-methodology.md)
+- [Checkpointing and recovery](checkpoint-and-recovery.md)

@@ -13,7 +13,7 @@ timestamp: '2026-07-20T00:00:00Z'
 # Status
 
 Stable with the Hogwarts-only transition cooldown patch —
-[/fixes/hogwarts-transition-cooldown.md](/fixes/hogwarts-transition-cooldown.md).
+[/fixes/hogwarts-transition-cooldown.md](../fixes/hogwarts-transition-cooldown.md).
 
 # The crash pattern (worked example of the triage method)
 
@@ -22,7 +22,7 @@ Stable with the Hogwarts-only transition cooldown patch —
 - Log showed the real story: repeated `FFakeStereoRenderingHook` null-deref
   handler activity + `Previous instruction does not use the same register as
   the dereference` + late D3D12 rehook attempts.
-- Dump symbolization ([/playbooks/crash-dump-analysis.md](/playbooks/crash-dump-analysis.md))
+- Dump symbolization ([/playbooks/crash-dump-analysis.md](../playbooks/crash-dump-analysis.md))
   put `safetyhook::MidHook::create` and `memcpy` (hook patching) on the stack —
   the framework was mid-memory-patch when the game crashed.
 - Root behavioural cause: the game cycled

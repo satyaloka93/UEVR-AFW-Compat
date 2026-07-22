@@ -32,7 +32,7 @@ list *completely*, and nothing else.
 **How to apply:** re-read the fix summary (`TOW2_UEVR_FIX_SUMMARY.md`-style)
 before porting; check off every listed item; gate everything by executable
 detection; deploy to the isolated directory with recorded hashes
-([/playbooks/checkpoint-and-recovery.md](/playbooks/checkpoint-and-recovery.md)).
+([/playbooks/checkpoint-and-recovery.md](../playbooks/checkpoint-and-recovery.md)).
 
 # Standing sub-decisions
 
@@ -44,7 +44,7 @@ detection; deploy to the isolated directory with recorded hashes
   descendant `9034a857`, not backporting patches. Its AddObject crash also
   yielded the candidate-guard rule: validate RCX/RDX/R8/R9/stack candidates
   against the FUObjectArray index + readable class/vtable before
-  `add_new_object`, else skip ([/fixes/render-target-validation-hardening.md](/fixes/render-target-validation-hardening.md)
+  `add_new_object`, else skip ([/fixes/render-target-validation-hardening.md](../fixes/render-target-validation-hardening.md)
   states the same validate-don't-guess principle).
 - **Gate AFW work to active AFW frames.** PureDark ran AFW descriptor/texture/
   command-list setup every frame even in Native Stereo; gating it recovered
@@ -54,11 +54,11 @@ detection; deploy to the isolated directory with recorded hashes
 - **Closed runtime + source update is one checkpoint.** Beta.4 changed both
   `PDAFWPlugin.dll` and its ABI/callers. Never hot-swap the DLL alone across an
   unverified header ABI. Preserve the prior runtime, backend and PDB together;
-  see [the beta.4 correction](/fixes/afw-beta4-motion-vector-scale.md).
+  see [the beta.4 correction](../fixes/afw-beta4-motion-vector-scale.md).
 
 # Related
 
-- [/projects/puredark-afw-integration.md](/projects/puredark-afw-integration.md) — the ongoing effort these rules govern
+- [/projects/puredark-afw-integration.md](../projects/puredark-afw-integration.md) — the ongoing effort these rules govern
 
 # Citations
 

@@ -31,8 +31,8 @@ same shape, documented as numbered **stages** in a worklog:
 6. **Test with explicit success criteria written before the run.**
 7. **Interpret and either keep or revert.** Record rejections with reasons —
    they prevent re-treading (see the rejected lists in
-   [/games/outer-worlds-2.md](/games/outer-worlds-2.md) and
-   [/games/hogwarts-legacy.md](/games/hogwarts-legacy.md)).
+   [/games/outer-worlds-2.md](../games/outer-worlds-2.md) and
+   [/games/hogwarts-legacy.md](../games/hogwarts-legacy.md)).
 
 # Isolation techniques that paid off
 
@@ -40,22 +40,22 @@ same shape, documented as numbered **stages** in a worklog:
   reproduce the crash without it → deprioritize it. Restore afterwards.
 - **A/B against known-good binaries** — but scope the A/B correctly: the AFW
   full-backend A/B was rolled back because it imported unrelated behaviour
-  along with the fix under test ([/decisions/narrow-port-scope.md](/decisions/narrow-port-scope.md)).
+  along with the fix under test ([/decisions/narrow-port-scope.md](../decisions/narrow-port-scope.md)).
 - **One-variable CVar bisection** for visual issues
-  ([/fixes/virtual-shadow-maps-stereo-mismatch.md](/fixes/virtual-shadow-maps-stereo-mismatch.md)).
+  ([/fixes/virtual-shadow-maps-stereo-mismatch.md](../fixes/virtual-shadow-maps-stereo-mismatch.md)).
 - **Audit upstream as commits + ABI + runtime, not a branch merge.** The
   PureDark beta.4 update was reduced to Y motion scale, 2D guards and the
   matching official runtime; see
-  [/fixes/afw-beta4-motion-vector-scale.md](/fixes/afw-beta4-motion-vector-scale.md).
+  [/fixes/afw-beta4-motion-vector-scale.md](../fixes/afw-beta4-motion-vector-scale.md).
 - **Backup before every profile/INI change**, with dated `.bak` names.
 
 # Failure-mode taxonomy (classify first)
 
-- **Crash** (dump exists) → [/playbooks/crash-dump-analysis.md](/playbooks/crash-dump-analysis.md)
+- **Crash** (dump exists) → [/playbooks/crash-dump-analysis.md](crash-dump-analysis.md)
 - **Stall** (no dump; Present/heartbeat stops while game threads continue) →
-  [/playbooks/log-signature-triage.md](/playbooks/log-signature-triage.md)
+  [/playbooks/log-signature-triage.md](log-signature-triage.md)
 - **Visual wrongness** (eye mismatch, ghosting) → CVar bisection, then
-  [/playbooks/renderdoc-capture.md](/playbooks/renderdoc-capture.md)
+  [/playbooks/renderdoc-capture.md](renderdoc-capture.md)
 
 Misclassifying a stall as a crash wastes a whole session — the TOW2 AFW "hang"
 had continuous `XR_SUCCESS` telemetry right up to the moment Present stopped,
@@ -67,4 +67,4 @@ render starvation from engine-thread failure.
 # Before starting any of this
 
 Snapshot the current working state:
-[/playbooks/checkpoint-and-recovery.md](/playbooks/checkpoint-and-recovery.md).
+[/playbooks/checkpoint-and-recovery.md](checkpoint-and-recovery.md).

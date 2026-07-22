@@ -37,7 +37,7 @@ directions.
 - Profile keys: `VR_DPadShifting=true`, `VR_DPadShiftingMethod=1`,
   `remap_lb_button=0`.
 - This was also ported (d-pad path only) to the PureDark AFW branch —
-  [/decisions/narrow-port-scope.md](/decisions/narrow-port-scope.md).
+  [/decisions/narrow-port-scope.md](../decisions/narrow-port-scope.md).
 
 # Citations
 

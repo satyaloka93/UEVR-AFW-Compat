@@ -15,7 +15,7 @@ timestamp: '2026-07-20T00:00:00Z'
 
 In native stereo, shadows and background elements differ between the left and
 right eye — a visual "eye mismatch" rather than a crash. Observed in The Outer
-Worlds 2 ([/games/outer-worlds-2.md](/games/outer-worlds-2.md)).
+Worlds 2 ([/games/outer-worlds-2.md](../games/outer-worlds-2.md)).
 
 # Root cause and fix
 

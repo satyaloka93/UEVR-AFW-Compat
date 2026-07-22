@@ -24,9 +24,9 @@ vtable-reference scan range from **100 to 300 bytes** (both fallback scans).
 Patched Avowed's reference sits at `+0xCC`, past the old window.
 
 This was the *first* domino for Avowed recovery — see
-[/games/avowed.md](/games/avowed.md). Once discovery worked, the failure mode
+[/games/avowed.md](../games/avowed.md). Once discovery worked, the failure mode
 moved downstream into native-stereo/scene-capture stability
-([/fixes/native-stereo-safe-activation.md](/fixes/native-stereo-safe-activation.md)).
+([/fixes/native-stereo-safe-activation.md](native-stereo-safe-activation.md)).
 
 # When to reach for it
 

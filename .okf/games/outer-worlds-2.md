@@ -63,18 +63,18 @@ The successful log recorded:
 
 Exact checkpoint:
 `<evidence-root>/puredark-beta4-tow2-zero-ghosting-success-20260720`.
-See [the beta.4 motion-vector correction](/fixes/afw-beta4-motion-vector-scale.md).
+See [the beta.4 motion-vector correction](../fixes/afw-beta4-motion-vector-scale.md).
 
 # Required injection/stereo fixes
 
 - TOW2 CVar scanner/freeze paths bypassed —
-  [CVar scanner bypass](/fixes/tow2-cvar-scanner-bypass.md).
+  [CVar scanner bypass](../fixes/tow2-cvar-scanner-bypass.md).
 - Real-backbuffer D3D12 fallback + early OpenXR sync/pose/begin —
-  [backbuffer and XR prep](/fixes/tow2-backbuffer-fallback-openxr-prep.md).
+  [backbuffer and XR prep](../fixes/tow2-backbuffer-fallback-openxr-prep.md).
 - TOW2-only fake-stereo confirmation threshold —
-  [view-extension analyzer timing](/fixes/tow2-view-extension-analyzer-threshold.md).
+  [view-extension analyzer timing](../fixes/tow2-view-extension-analyzer-threshold.md).
 - Dynamic per-call UObject candidate/class/superclass validation —
-  [AddObject candidate guard](/fixes/tow2-addobject-candidate-guard.md).
+  [AddObject candidate guard](../fixes/tow2-addobject-candidate-guard.md).
 - PureDark's invasive XR null-dereference VEH installs only when Native Stereo
   Fix is enabled. TOW2 requires it disabled.
 - Destructive D3D rehook is suppressed while the window-message hook remains
@@ -112,7 +112,7 @@ There were two independent failures with the same visible "waiting" symptom:
    `UObjectHook::add_new_object()` because TOW2 changes the AddObject argument
    layout between calls. Per-call authoritative validation fixed this path.
 
-Use [in-process hang dumps](/playbooks/in-process-hang-dump.md) when external
+Use [in-process hang dumps](../playbooks/in-process-hang-dump.md) when external
 ProcDump is denied. Do not infer AFW caused a title freeze unless
 `InitFrameWarp` actually appears before the stall.
 
@@ -135,9 +135,9 @@ ProcDump is denied. Do not infer AFW caused a title freeze unless
 
 # Related
 
-- [PureDark AFW integration](/projects/puredark-afw-integration.md)
-- [Narrow port scope](/decisions/narrow-port-scope.md)
-- [Checkpointing and recovery](/playbooks/checkpoint-and-recovery.md)
+- [PureDark AFW integration](../projects/puredark-afw-integration.md)
+- [Narrow port scope](../decisions/narrow-port-scope.md)
+- [Checkpointing and recovery](../playbooks/checkpoint-and-recovery.md)
 
 # Citations
 

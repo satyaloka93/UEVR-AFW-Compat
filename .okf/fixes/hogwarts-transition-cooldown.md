@@ -33,14 +33,14 @@ In `FFakeStereoRenderingHook.{cpp,hpp}`, gated by
 
 Validated: no-crash runs with the cooldown active, `wandpos.dll` restored, and
 no `Falling back to direct pose enqueue` lines (that fallback is rejected —
-see [/games/hogwarts-legacy.md](/games/hogwarts-legacy.md)).
+see [/games/hogwarts-legacy.md](../games/hogwarts-legacy.md)).
 
 # Reuse guidance
 
 If a game's log shows rapid passthrough→re-enable cycling around loads and it
 crashes later on a game thread, add (or generalize) this cooldown before trying
 anything more invasive. Builds on
-[/fixes/native-stereo-safe-activation.md](/fixes/native-stereo-safe-activation.md).
+[/fixes/native-stereo-safe-activation.md](native-stereo-safe-activation.md).
 
 # Citations
 

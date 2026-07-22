@@ -28,7 +28,7 @@ producing a dead Present path and no headset output.
 - **Telemetry:** throttled OpenXR `end_frame` result logging and a
   once-per-second Present heartbeat — cheap permanent instrumentation that
   makes future stalls diagnosable
-  ([/playbooks/log-signature-triage.md](/playbooks/log-signature-triage.md)).
+  ([/playbooks/log-signature-triage.md](../playbooks/log-signature-triage.md)).
 - **Rehook suppression:** suppress destructive D3D rehook churn while the
   window-message hook is still intact (rehooks were tearing down a live
   swapchain path).
@@ -37,7 +37,7 @@ producing a dead Present path and no headset output.
 
 Any game that shows headset output dying at title/startup while the flat window
 still runs is a candidate for this trio: backbuffer fallback, early XR frame
-prep, rehook suppression. See [/games/outer-worlds-2.md](/games/outer-worlds-2.md).
+prep, rehook suppression. See [/games/outer-worlds-2.md](../games/outer-worlds-2.md).
 
 # Citations
 

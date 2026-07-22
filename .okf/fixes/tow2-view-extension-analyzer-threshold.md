@@ -49,7 +49,7 @@ candidates did not reach the required count.
 Treat this as a timing race, not a configuration or AFW-startup failure. Do not
 lower the threshold further without a fresh dump/log proving which candidate
 stopped and preserving the existing identity checks. Keep the one-shot
-[in-process hang dump](/playbooks/in-process-hang-dump.md) available until
+[in-process hang dump](../playbooks/in-process-hang-dump.md) available until
 several clean launches establish reliability.
 
 # Distinguish the second title failure
@@ -57,13 +57,13 @@ several clean launches establish reliability.
 Completing analyzer discovery does not protect against unsafe UObject
 construction hooks. A separate running dump identified TOW2's changing
 AddObject argument layout; see
-[dynamic AddObject candidate validation](/fixes/tow2-addobject-candidate-guard.md).
+[dynamic AddObject candidate validation](tow2-addobject-candidate-guard.md).
 Both fixes are required.
 
 # Related
 
-- [The Outer Worlds 2 state](/games/outer-worlds-2.md)
-- [PureDark AFW integration](/projects/puredark-afw-integration.md)
+- [The Outer Worlds 2 state](../games/outer-worlds-2.md)
+- [PureDark AFW integration](../projects/puredark-afw-integration.md)
 
 # Citations
 

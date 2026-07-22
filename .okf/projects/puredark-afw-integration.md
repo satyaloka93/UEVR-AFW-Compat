@@ -1,14 +1,15 @@
 ---
 type: project
 title: PureDark AFW integration — ongoing effort state
-description: Live state of the narrow Avowed/TOW2 compatibility port onto PureDark AFW; TOW2 beta.4 Previous Frame is now smooth with zero observed ghosting, while intermittent title timing and cross-game regressions remain open.
+description: Live state of the narrow Avowed/TOW2/SHf compatibility port onto PureDark AFW; TOW2 beta.4 Previous Frame is validated, while SHf has a working local Native/AFW candidate that remains uncommitted and unsupported in the public alpha.
 tags:
 - afw
 - puredark
 - avowed
 - tow2
+- shf
 - ongoing
-timestamp: '2026-07-20T19:41:50+09:00'
+timestamp: '2026-07-22T10:48:00+09:00'
 resource: .
 ---
 
@@ -16,7 +17,7 @@ resource: .
 
 Run PureDark AFW in games already stabilized on the regular backend without
 importing broad lifecycle, renderer, VRS/UI, or artifact-prone behavior. The
-standing rules are in [narrow port scope](/decisions/narrow-port-scope.md).
+standing rules are in [narrow port scope](../decisions/narrow-port-scope.md).
 
 # Branch and preservation state
 
@@ -82,7 +83,7 @@ standing rules are in [narrow port scope](/decisions/narrow-port-scope.md).
 The first Avowed beta.4 crafting-table run exposed a stale attached-component
 virtual dispatch in `UObjectHook::tick_attachments`; dump diagnosis and the
 Avowed-scoped guard are documented in
-[/fixes/avowed-stale-attachment-guard.md](/fixes/avowed-stale-attachment-guard.md).
+[/fixes/avowed-stale-attachment-guard.md](../fixes/avowed-stale-attachment-guard.md).
 One immediate crafting retest completed without a crash. Repeated
 crafting/loadout validation is still required before beta.4 is promoted beyond
 the experimental install.
@@ -97,9 +98,9 @@ validated non-blocking waits, rehook suppression, CVar bypasses and VSM via
 Additional PureDark-branch corrections:
 
 1. XR null-dereference VEH only when Native Stereo Fix is enabled.
-2. [TOW2-only analyzer threshold 40](/fixes/tow2-view-extension-analyzer-threshold.md).
-3. [Per-call FUObjectArray-backed AddObject validation](/fixes/tow2-addobject-candidate-guard.md), derived from a running-process dump.
-4. One-shot [in-process title hang dump](/playbooks/in-process-hang-dump.md)
+2. [TOW2-only analyzer threshold 40](../fixes/tow2-view-extension-analyzer-threshold.md).
+3. [Per-call FUObjectArray-backed AddObject validation](../fixes/tow2-addobject-candidate-guard.md), derived from a running-process dump.
+4. One-shot [in-process title hang dump](../playbooks/in-process-hang-dump.md)
    temporarily retained because analyzer completion is still timing-sensitive.
 
 # 2026-07-20 beta.4 result
@@ -113,7 +114,7 @@ through `7510c210`; no broad branch merge was performed. Ported only:
 - official beta.4 `PDAFWPlugin.dll` (white-speck/runtime fix).
 
 The debug UINT64 shader option was deliberately not exposed or enabled.
-Details: [AFW beta.4 motion-vector correction](/fixes/afw-beta4-motion-vector-scale.md).
+Details: [AFW beta.4 motion-vector correction](../fixes/afw-beta4-motion-vector-scale.md).
 
 TOW2 then reached gameplay and ran Previous Frame AFW with no visible weapon or
 moving-object ghosting and smooth output. The log had one `InitFrameWarp`,
@@ -138,6 +139,24 @@ The live TOW2 profile was reset after the successful run to Native startup with
 Ghosting Fix/Bootstrap off; Previous Frame mode remains stored. Enable AFW and
 ghosting only after reaching gameplay.
 
+# SHf local compatibility candidate
+
+A narrow, uncommitted SHf candidate now ports the Joey-derived UE5.7/OpenXR
+bootstrap into the beta.4 destination. Stable UI reuse, bounded setup retries,
+owned scene/scene-capture copies, right-eye composition fallback, direct RHI
+pose enqueue and rehook suppression produced reliable injection and both-eye
+Native Stereo without runaway VRAM.
+
+Manual Native → Previous Frame AFW is functional, but it saves only about 3–4
+ms after DLSS is correctly reapplied, remains CPU-limited near 40–41 application
+FPS, and distorts hands/weapons. Native plus a manual game-owned DLSS quality
+reapply is therefore recommended. AFW startup, AFW → Native and automatic DLSS
+settings reflection are rejected. The exact profile, measurements, hashes and
+limitations are in [Silent Hill f](../games/silent-hill-f.md).
+
+This candidate is not in `afw-beta4-compat-v0.1.0-alpha.1`; the public release's
+SHf unsupported warning remains correct.
+
 # Standing findings
 
 - Native → AFW has worked; **AFW → Native is unsafe** and can leave a black
@@ -161,18 +180,20 @@ ghosting only after reaching gameplay.
 5. Repeat Avowed crafting, weapon replacement and loadout transitions; confirm
    the stale-attachment guard protects the original dump path without breaking
    weapon recovery.
-6. SHf is currently non-working: reconcile and port its Joey-derived UE5.7/
-   OpenXR bootstrap into PureDark AFW before regression testing it. Separately
-   regression-test SH2 and PSVR2 input with beta.4.
+6. Preserve the working SHf candidate as a complete source/binary/profile/log
+   checkpoint, repeat sustained Native gameplay and transitions, and leave SHf
+   unsupported publicly until image quality and lifecycle limits are resolved.
+   Separately regression-test actual SH2 and PSVR2 input with beta.4.
 7. Remove the temporary hang-dump watchdog after launch reliability is proven.
 8. Keep releases marked prerelease until these checks pass; retain temporary
    diagnostics only while their corresponding race remains unresolved.
 
 # Related
 
-- [Avowed](/games/avowed.md)
-- [The Outer Worlds 2](/games/outer-worlds-2.md)
-- [Checkpointing and recovery](/playbooks/checkpoint-and-recovery.md)
+- [Avowed](../games/avowed.md)
+- [The Outer Worlds 2](../games/outer-worlds-2.md)
+- [Silent Hill f](../games/silent-hill-f.md)
+- [Checkpointing and recovery](../playbooks/checkpoint-and-recovery.md)
 
 # Citations
 

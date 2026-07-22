@@ -15,7 +15,7 @@ timestamp: '2026-07-20T18:54:40+09:00'
 This procedure applies to both exception-generated crash dumps and minidumps
 captured from a frozen process. When no dump exists and external ProcDump is
 denied, first use the executable-scoped
-[in-process hang-dump playbook](/playbooks/in-process-hang-dump.md).
+[in-process hang-dump playbook](in-process-hang-dump.md).
 
 # Inputs to gather
 
@@ -26,7 +26,7 @@ denied, first use the executable-scoped
 - The **matching** `UEVRBackend.dll` + `UEVRBackend.pdb` from the local build
   (`<baseline-repo-root>/build/bin/uevr/`). Symbolization is only trustworthy if
   the deployed DLL exactly matches this build/PDB pair — record deploy hashes
-  ([/playbooks/checkpoint-and-recovery.md](/playbooks/checkpoint-and-recovery.md)).
+  ([/playbooks/checkpoint-and-recovery.md](checkpoint-and-recovery.md)).
 
 # Procedure
 
@@ -51,7 +51,7 @@ subtracting the module base found in the dump
 - **The faulting module is not the culprit.** Hogwarts crashed inside
   `HogwartsLegacy.exe`, but the stack held `safetyhook::MidHook::create` and
   `memcpy` from UEVRBackend — the framework's hook-patching destabilized the
-  game ([/games/hogwarts-legacy.md](/games/hogwarts-legacy.md)).
+  game ([/games/hogwarts-legacy.md](../games/hogwarts-legacy.md)).
 - Cross-reference the dump with the log's final minutes; the log usually names
   the fragile subsystem (repeated null-deref handler lines) before the crash.
 - A crashing offset + PDB pins the exact source line: the AFW injection crash
@@ -62,4 +62,4 @@ subtracting the module base found in the dump
 - A TOW2 live-stall dump put GameThread in `UObjectHook::add_new_object()` while
   traversing `UStruct::get_super_struct()`. That proved a per-call AddObject
   register-layout change, not a Present/GPU deadlock; see
-  [/fixes/tow2-addobject-candidate-guard.md](/fixes/tow2-addobject-candidate-guard.md).
+  [/fixes/tow2-addobject-candidate-guard.md](../fixes/tow2-addobject-candidate-guard.md).

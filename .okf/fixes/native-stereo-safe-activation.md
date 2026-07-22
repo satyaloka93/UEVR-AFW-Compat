@@ -36,11 +36,11 @@ crashes; Hogwarts TaskGraph AVs).
 
 # Per-game applications
 
-- [/games/avowed.md](/games/avowed.md) — core of the recovery; pairs with
-  [/fixes/render-target-validation-hardening.md](/fixes/render-target-validation-hardening.md).
-- [/games/hogwarts-legacy.md](/games/hogwarts-legacy.md) — needed an additional
-  post-transition cooldown: [/fixes/hogwarts-transition-cooldown.md](/fixes/hogwarts-transition-cooldown.md).
-- [/games/outer-worlds-2.md](/games/outer-worlds-2.md) — the fix is **rejected**
+- [/games/avowed.md](../games/avowed.md) — core of the recovery; pairs with
+  [/fixes/render-target-validation-hardening.md](render-target-validation-hardening.md).
+- [/games/hogwarts-legacy.md](../games/hogwarts-legacy.md) — needed an additional
+  post-transition cooldown: [/fixes/hogwarts-transition-cooldown.md](hogwarts-transition-cooldown.md).
+- [/games/outer-worlds-2.md](../games/outer-worlds-2.md) — the fix is **rejected**
   entirely there; TOW2 runs plain Native Stereo with `VR_NativeStereoFix=false`.
 
 # Principle

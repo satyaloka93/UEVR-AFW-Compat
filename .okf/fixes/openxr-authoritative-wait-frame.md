@@ -28,7 +28,7 @@ fix was substantially worse).
 # Impact
 
 This was the single biggest OpenXR performance improvement for Avowed
-([/games/avowed.md](/games/avowed.md)) and was one of the first things ported
+([/games/avowed.md](../games/avowed.md)) and was one of the first things ported
 to the PureDark AFW branch.
 
 # Reuse guidance

@@ -90,9 +90,9 @@ does not affect steady non-2D gameplay but should protect menu transitions.
 
 # Related
 
-- [PureDark AFW integration](/projects/puredark-afw-integration.md)
-- [The Outer Worlds 2 state](/games/outer-worlds-2.md)
-- [Narrow port scope](/decisions/narrow-port-scope.md)
+- [PureDark AFW integration](../projects/puredark-afw-integration.md)
+- [The Outer Worlds 2 state](../games/outer-worlds-2.md)
+- [Narrow port scope](../decisions/narrow-port-scope.md)
 
 # Citations
 

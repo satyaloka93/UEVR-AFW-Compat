@@ -42,7 +42,7 @@ Supporting changes seen in the SH2 conversion (apply per taste, not required):
 **Directional mode-switch rule:** AFW → Native live switching is unsafe.
 Some games can start Native and switch Native → AFW after fragile title setup;
 follow the game concept rather than forcing one startup rule
-([/decisions/narrow-port-scope.md](/decisions/narrow-port-scope.md)).
+([/decisions/narrow-port-scope.md](../decisions/narrow-port-scope.md)).
 
 # 2. Independent script-stack migration
 
@@ -69,12 +69,12 @@ Conversion details that matter:
 - **Known framework pitfall:** `libs/input.lua` `updatePawnSettings` assumes
   reflected APawn properties (`bUseControllerRotationPitch`) that some games'
   pawn classes lack — `pcall`-guard those reads/writes (fixed this way for SHf,
-  [/games/silent-hill-f.md](/games/silent-hill-f.md); the same libs tree ships
+  [/games/silent-hill-f.md](../games/silent-hill-f.md); the same libs tree ships
   in the SH2 profile).
 
 # 3. Preservation discipline for divergent variants
 
-Follow [/playbooks/checkpoint-and-recovery.md](/playbooks/checkpoint-and-recovery.md):
+Follow [/playbooks/checkpoint-and-recovery.md](checkpoint-and-recovery.md):
 
 - Keep the full pre-AFW profile as a sibling directory (`<Game>_mine`,
   `<Game>_hands`), not just a `config.txt.bak` — the script stacks diverge too
@@ -86,6 +86,6 @@ Follow [/playbooks/checkpoint-and-recovery.md](/playbooks/checkpoint-and-recover
 
 # Related
 
-- [/projects/puredark-afw-integration.md](/projects/puredark-afw-integration.md) — backend side of AFW
-- [/fixes/afw-beta4-motion-vector-scale.md](/fixes/afw-beta4-motion-vector-scale.md) — runtime/ghosting state
-- [/games/silent-hill-f.md](/games/silent-hill-f.md) — same framework libs, pcall fix
+- [/projects/puredark-afw-integration.md](../projects/puredark-afw-integration.md) — backend side of AFW
+- [/fixes/afw-beta4-motion-vector-scale.md](../fixes/afw-beta4-motion-vector-scale.md) — runtime/ghosting state
+- [/games/silent-hill-f.md](../games/silent-hill-f.md) — same framework libs, pcall fix

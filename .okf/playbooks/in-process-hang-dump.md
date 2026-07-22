@@ -46,13 +46,13 @@ cdb.exe -z tow2_title_hang.dmp `
 ```
 
 Then apply the address/PDB rules in
-[Windows minidump analysis](/playbooks/crash-dump-analysis.md).
+[Windows minidump analysis](crash-dump-analysis.md).
 
 # TOW2 result
 
 The first TOW2 in-process dump identified the GameThread inside
 `UObjectHook::add_new_object()` / `sdk::UStruct::get_super_struct()`, leading to
-[dynamic AddObject validation](/fixes/tow2-addobject-candidate-guard.md).
+[dynamic AddObject validation](../fixes/tow2-addobject-candidate-guard.md).
 External ProcDump had been denied.
 
 A later `tow2_title_hang.dmp` watchdog was reintroduced while investigating an
@@ -68,7 +68,7 @@ fixed anything; preserve both binaries and continue testing.
   contain sensitive process data.
 - Avoid capturing normal long loading/minimized intervals.
 - Never symbolize against a merely similar PDB; use SHA-256-pinned artifacts
-  from [checkpointing and recovery](/playbooks/checkpoint-and-recovery.md).
+  from [checkpointing and recovery](checkpoint-and-recovery.md).
 
 # Citations
 
