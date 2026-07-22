@@ -58,7 +58,16 @@ standing rules are in [narrow port scope](../decisions/narrow-port-scope.md).
 - Adds the rebuilt SHf compatibility backend plus separate sanitized Avowed and
   SHf profile assets. The SHf profile starts Native and contains no rejected
   automatic DLSS reset helper.
-- Exact binary/archive hashes are published in the attached release manifests.
+- Published hashes:
+  - `UEVRBackend.dll`: `41d7eb71c884858e5d016c3d837b16eb394f2dd3a4a0bf6e94d7d371e8c31322`
+  - `UEVRBackend.pdb`: `66d18fb66ea451dae093d2304eebf0842afe3ed22dc177b80947db454a9cf686`
+  - `PDAFWPlugin.dll`: `76bbc4d7a5370ba0d6a1a50de6b81d45223e42b764d2d7c79f0c6c48a59f6b64`
+  - `openvr_api.dll`: `ac164002fa0a24ef7b2cbd2592814389b0c424f8985e5133e48ac79933466b9d`
+  - `openxr_loader.dll`: `3bb4eb190024f92eecf4a0bf33669b5d0b27571ddf4c36a33c58de199ee536c1`
+  - `UEVRPluginNullifier.dll`: `69e495287d6c6683d69c9f81df67deaa782e35a436aa8abf6022f6ac4ad30462`
+  - main ZIP: `c9687a3389f0c5d67603786cfc6d35d926a1cabe98f2d4d30eb585dd63b627a6`
+  - symbols ZIP: `8531c856120a8a10ca5e43c68f62f4cf0c4356eba8cb086c29d1c54b693673bf`
+  - profiles ZIP: `967acb6e2a3d1a1dd98a70c46fe5039569ed718b4c3dcd58ee1214cffbae1e75`
 - Keep alpha.2 marked prerelease until Avowed/TOW2 and sustained SHf gameplay
   are reproduced using the released hashes.
 

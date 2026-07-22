@@ -1,7 +1,7 @@
 # Update Log
 
 ## 2026-07-22
-* **Maintenance**: Published SHf compatibility source commit `cc0c43f9` and prepared prerelease alpha.2 with the rebuilt backend plus sanitized [Avowed](games/avowed.md) and [Silent Hill f](games/silent-hill-f.md) profiles; SHf now has an installable Native-start candidate while AFW and automatic DLSS repair remain explicitly limited.
+* **Maintenance**: Published SHf compatibility source commit `cc0c43f9` and prerelease alpha.2 with the rebuilt backend plus sanitized [Avowed](games/avowed.md) and [Silent Hill f](games/silent-hill-f.md) profiles; SHf now has an installable Native-start candidate while AFW and automatic DLSS repair remain explicitly limited.
 * **Maintenance**: Updated [Silent Hill f](games/silent-hill-f.md), the reusable [UE5.7/OpenXR bootstrap](fixes/shf-ue57-openxr-bootstrap.md), and the [PureDark AFW project](projects/puredark-afw-integration.md) with the runtime-tested local candidate: early clean-process injection, bounded stable UI/scene resources and both-eye Native now work; DLSS still requires a manual game-owned quality reapply, profile-L Ultra Performance remains unconfirmed, AFW is visually/CPU limited, reflected settings automation is rejected after a freeze, and alpha.1 remains unsupported.
 * **Maintenance**: Converted OKF bundle-root cross-links to document-relative links so they resolve correctly in GitHub's repository view while preserving the same OKF concept targets.
 
