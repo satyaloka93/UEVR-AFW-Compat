@@ -44,6 +44,42 @@ bool is_the_outer_worlds2_executable() {
 
     return result;
 }
+
+bool is_silent_hill_f_executable() {
+    static const bool result = []() {
+        const auto exe_path = utility::get_module_pathw(utility::get_executable());
+        if (!exe_path.has_value()) {
+            return false;
+        }
+
+        auto filename = std::filesystem::path(*exe_path).filename().wstring();
+        std::transform(filename.begin(), filename.end(), filename.begin(), [](wchar_t ch) {
+            return static_cast<wchar_t>(std::towlower(static_cast<wint_t>(ch)));
+        });
+        return filename == L"shf-win64-shipping.exe";
+    }();
+
+    return result;
+}
+
+bool needs_real_backbuffer_fallback() {
+    return is_the_outer_worlds2_executable() || is_silent_hill_f_executable();
+}
+
+const char* current_game_fallback_tag() {
+    return is_silent_hill_f_executable() ? "SHf" : "TOW2";
+}
+
+bool texture_desc_matches_for_stable_copy(const D3D12_RESOURCE_DESC& a, const D3D12_RESOURCE_DESC& b) {
+    return a.Dimension == b.Dimension &&
+           a.Width == b.Width &&
+           a.Height == b.Height &&
+           a.DepthOrArraySize == b.DepthOrArraySize &&
+           a.MipLevels == b.MipLevels &&
+           a.Format == b.Format &&
+           a.SampleDesc.Count == b.SampleDesc.Count &&
+           a.SampleDesc.Quality == b.SampleDesc.Quality;
+}
 }
 
 constexpr auto ENGINE_SRC_DEPTH = D3D12_RESOURCE_STATE_DEPTH_READ | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
@@ -52,6 +88,21 @@ constexpr auto ENGINE_SRC_COLOR = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE
 namespace vrmod {
 vr::EVRCompositorError D3D12Component::on_frame(VR* vr) {
     if (m_force_reset || m_last_afr_state != vr->is_using_afr()) {
+        if (is_silent_hill_f_executable()) {
+            static auto last_setup_attempt = std::chrono::steady_clock::time_point{};
+            const auto now = std::chrono::steady_clock::now();
+            constexpr auto minimum_setup_interval = std::chrono::milliseconds(500);
+
+            if (last_setup_attempt != std::chrono::steady_clock::time_point{} &&
+                now - last_setup_attempt < minimum_setup_interval) {
+                SPDLOG_WARNING_EVERY_N_SEC(1,
+                    "[SHf D3D12] Texture setup retry throttled to prevent runaway allocation");
+                return vr::VRCompositorError_None;
+            }
+
+            last_setup_attempt = now;
+        }
+
         if (!setup()) {
             SPDLOG_ERROR_EVERY_N_SEC(1, "[D3D12 VR] Could not set up, trying again next frame");
             m_force_reset = true;
@@ -92,8 +143,9 @@ vr::EVRCompositorError D3D12Component::on_frame(VR* vr) {
         backbuffer = real_backbuffer;
     }
 
-    if (backbuffer == nullptr && is_the_outer_worlds2_executable()) {
-        SPDLOG_INFO_EVERY_N_SEC(1, "[TOW2 D3D12] Fake stereo render target is null on_frame; falling back to real backbuffer");
+    if (backbuffer == nullptr && needs_real_backbuffer_fallback()) {
+        SPDLOG_INFO_EVERY_N_SEC(1, "[{} D3D12] Fake stereo render target is null on_frame; falling back to real backbuffer",
+            current_game_fallback_tag());
         backbuffer = real_backbuffer;
     }
 
@@ -122,21 +174,21 @@ vr::EVRCompositorError D3D12Component::on_frame(VR* vr) {
         runtime->fix_frame();
     }
 
-    // TOW2's post-update menu path can reach D3D12 copying before the normal
+    // Some UE5 post-update paths can reach D3D12 copying before the normal
     // OpenXR begin-frame point. Prepare exactly one valid frame before any copy.
-    if (is_the_outer_worlds2_executable() && runtime->is_openxr() && vr->m_openxr->ready() && !vr->m_openxr->frame_began) {
+    if (needs_real_backbuffer_fallback() && runtime->is_openxr() && vr->m_openxr->ready() && !vr->m_openxr->frame_began) {
         if (!vr->m_openxr->frame_synced) {
-            SPDLOG_INFO_EVERY_N_SEC(1, "[TOW2 D3D12] Synchronizing OpenXR frame before D3D12 copy path");
+            SPDLOG_INFO_EVERY_N_SEC(1, "[{} D3D12] Synchronizing OpenXR frame before D3D12 copy path", current_game_fallback_tag());
             vr->m_openxr->synchronize_frame(frame_count);
         }
 
         if (!vr->m_openxr->got_first_poses) {
-            SPDLOG_INFO_EVERY_N_SEC(1, "[TOW2 D3D12] Updating OpenXR poses before D3D12 copy path");
+            SPDLOG_INFO_EVERY_N_SEC(1, "[{} D3D12] Updating OpenXR poses before D3D12 copy path", current_game_fallback_tag());
             vr->m_openxr->update_poses(false, frame_count);
         }
 
         if (vr->m_openxr->frame_synced && vr->m_openxr->got_first_poses) {
-            SPDLOG_INFO_EVERY_N_SEC(1, "[TOW2 D3D12] Beginning OpenXR frame before D3D12 copy path");
+            SPDLOG_INFO_EVERY_N_SEC(1, "[{} D3D12] Beginning OpenXR frame before D3D12 copy path", current_game_fallback_tag());
             vr->m_openxr->begin_frame();
         }
     }
@@ -186,12 +238,65 @@ vr::EVRCompositorError D3D12Component::on_frame(VR* vr) {
                 commands.setup(L"Game Texture Commands");
             }
         }
-    } else if (backbuffer.Get() != real_backbuffer.Get() && m_game_tex.texture.Get() != backbuffer.Get()) {
-        spdlog::info("[VR] Setting up game texture as reference to original");
+    } else if (backbuffer.Get() != real_backbuffer.Get()) {
+        if (is_silent_hill_f_executable()) {
+            const auto source_desc = backbuffer->GetDesc();
+            const auto needs_stable_copy = m_game_tex.texture.Get() == nullptr ||
+                !texture_desc_matches_for_stable_copy(m_game_tex.texture->GetDesc(), source_desc);
 
-        if (!m_game_tex.setup(device, backbuffer.Get(), DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_FORMAT_B8G8R8A8_UNORM, L"Game Texture")) {
-            spdlog::error("[VR] Failed to fully setup game texture.");
-            m_game_tex.reset();
+            if (needs_stable_copy) {
+                SPDLOG_WARN("[SHf][D3D12] Creating owned stable scene copy for volatile external RT [{}x{} fmt={} flags=0x{:x}]",
+                    source_desc.Width, source_desc.Height, (uint32_t)source_desc.Format, (uint32_t)source_desc.Flags);
+
+                D3D12_HEAP_PROPERTIES heap_props{};
+                heap_props.Type = D3D12_HEAP_TYPE_DEFAULT;
+                heap_props.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
+                heap_props.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
+
+                auto copy_desc = source_desc;
+                copy_desc.Flags |= D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+                copy_desc.Flags &= ~D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE;
+
+                ComPtr<ID3D12Resource> stable_copy{};
+                if (FAILED(device->CreateCommittedResource(&heap_props, D3D12_HEAP_FLAG_NONE, &copy_desc, ENGINE_SRC_COLOR, nullptr,
+                        IID_PPV_ARGS(&stable_copy)))) {
+                    SPDLOG_ERROR_EVERY_N_SEC(1, "[SHf][D3D12] Failed to create owned stable scene copy");
+                    m_game_tex.reset();
+                } else if (!m_game_tex.setup(device, stable_copy.Get(), DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_FORMAT_B8G8R8A8_UNORM,
+                               L"SHf Stable Scene Copy")) {
+                    spdlog::error("[SHf][D3D12] Failed to setup owned stable scene copy.");
+                    m_game_tex.reset();
+                } else {
+                    for (auto& commands : m_game_tex_commands) {
+                        if (!commands.ready()) {
+                            commands.setup(L"SHf Stable Scene Copy Commands");
+                        }
+                    }
+                }
+            }
+
+            if (m_game_tex.texture.Get() != nullptr) {
+                const auto idx = swapchain->GetCurrentBackBufferIndex() % m_game_tex_commands.size();
+                auto& command_ctx = m_game_tex_commands[idx];
+                if (!command_ctx.ready()) {
+                    command_ctx.setup(L"SHf Stable Scene Copy Commands");
+                }
+
+                if (command_ctx.ready()) {
+                    command_ctx.wait(INFINITE);
+                    command_ctx.copy(backbuffer.Get(), m_game_tex.texture.Get(), ENGINE_SRC_COLOR, ENGINE_SRC_COLOR);
+                    command_ctx.execute();
+                    backbuffer = m_game_tex.texture;
+                    SPDLOG_INFO_EVERY_N_SEC(2, "[SHf][D3D12] Copied volatile external RT into owned stable scene texture");
+                }
+            }
+        } else if (m_game_tex.texture.Get() != backbuffer.Get()) {
+            spdlog::info("[VR] Setting up game texture as reference to original");
+
+            if (!m_game_tex.setup(device, backbuffer.Get(), DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_FORMAT_B8G8R8A8_UNORM, L"Game Texture")) {
+                spdlog::error("[VR] Failed to fully setup game texture.");
+                m_game_tex.reset();
+            }
         }
     }
 
@@ -199,31 +304,134 @@ vr::EVRCompositorError D3D12Component::on_frame(VR* vr) {
         const auto scene_capture = ffsr->get_render_target_manager()->get_scene_capture_render_target();
         const auto scene_capture_rt = scene_capture != nullptr ? (ID3D12Resource*)scene_capture->get_native_resource() : nullptr;
 
-        if (scene_capture_rt != nullptr && m_scene_capture_tex.texture.Get() != scene_capture_rt) {
-            spdlog::info("[VR] Setting up scene capture texture as reference to original");
+        if (scene_capture_rt != nullptr) {
+            if (is_silent_hill_f_executable()) {
+                const auto source_desc = scene_capture_rt->GetDesc();
+                const auto needs_stable_copy = m_scene_capture_tex.texture.Get() == nullptr ||
+                    !texture_desc_matches_for_stable_copy(m_scene_capture_tex.texture->GetDesc(), source_desc);
 
-            if (!m_scene_capture_tex.setup(device, scene_capture_rt, DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_FORMAT_B8G8R8A8_UNORM, L"Scene Capture Texture")) {
-                spdlog::error("[VR] Failed to fully setup scene capture texture.");
-                m_scene_capture_tex.reset();
+                if (needs_stable_copy) {
+                    SPDLOG_WARN("[SHf][D3D12] Creating owned stable scene-capture copy [{}x{} fmt={} flags=0x{:x}]",
+                        source_desc.Width, source_desc.Height, (uint32_t)source_desc.Format, (uint32_t)source_desc.Flags);
+
+                    D3D12_HEAP_PROPERTIES heap_props{};
+                    heap_props.Type = D3D12_HEAP_TYPE_DEFAULT;
+                    heap_props.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
+                    heap_props.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
+
+                    auto copy_desc = source_desc;
+                    copy_desc.Flags |= D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+                    copy_desc.Flags &= ~D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE;
+
+                    ComPtr<ID3D12Resource> stable_copy{};
+                    if (FAILED(device->CreateCommittedResource(&heap_props, D3D12_HEAP_FLAG_NONE, &copy_desc, ENGINE_SRC_COLOR, nullptr,
+                            IID_PPV_ARGS(&stable_copy)))) {
+                        SPDLOG_ERROR_EVERY_N_SEC(1, "[SHf][D3D12] Failed to create owned stable scene-capture copy");
+                        m_scene_capture_tex.reset();
+                    } else if (!m_scene_capture_tex.setup(device, stable_copy.Get(), DXGI_FORMAT_B8G8R8A8_UNORM,
+                                   DXGI_FORMAT_B8G8R8A8_UNORM, L"SHf Stable Scene Capture Copy")) {
+                        spdlog::error("[SHf][D3D12] Failed to setup owned stable scene-capture copy.");
+                        m_scene_capture_tex.reset();
+                    } else {
+                        for (auto& commands : m_scene_capture_tex_commands) {
+                            if (!commands.ready()) {
+                                commands.setup(L"SHf Stable Scene Capture Copy Commands");
+                            }
+                        }
+                    }
+                }
+
+                if (m_scene_capture_tex.texture.Get() != nullptr) {
+                    const auto idx = swapchain->GetCurrentBackBufferIndex() % m_scene_capture_tex_commands.size();
+                    auto& command_ctx = m_scene_capture_tex_commands[idx];
+                    if (!command_ctx.ready()) {
+                        command_ctx.setup(L"SHf Stable Scene Capture Copy Commands");
+                    }
+
+                    if (command_ctx.ready()) {
+                        command_ctx.wait(INFINITE);
+                        command_ctx.copy(scene_capture_rt, m_scene_capture_tex.texture.Get(),
+                            D3D12_RESOURCE_STATE_RENDER_TARGET, ENGINE_SRC_COLOR);
+                        command_ctx.execute();
+                        SPDLOG_INFO_EVERY_N_SEC(2, "[SHf][D3D12] Copied volatile scene-capture RT into owned stable texture");
+                    }
+                }
+            } else if (m_scene_capture_tex.texture.Get() != scene_capture_rt) {
+                spdlog::info("[VR] Setting up scene capture texture as reference to original");
+
+                if (!m_scene_capture_tex.setup(device, scene_capture_rt, DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_FORMAT_B8G8R8A8_UNORM,
+                        L"Scene Capture Texture")) {
+                    spdlog::error("[VR] Failed to fully setup scene capture texture.");
+                    m_scene_capture_tex.reset();
+                }
             }
         }
 
         if (scene_capture_rt == nullptr && m_scene_capture_tex.texture.Get() != nullptr) {
             spdlog::info("[VR] Resetting scene capture texture");
-
             m_scene_capture_tex.reset();
         }
     } else {
         m_scene_capture_tex.reset();
     }
 
-    // We need to render the scene capture texture to the right side of the double wide texture
+    const bool using_real_backbuffer_fallback_frame = needs_real_backbuffer_fallback() && backbuffer.Get() == real_backbuffer.Get();
+    const auto scene_copy_src_state = is_silent_hill_f_executable() ? ENGINE_SRC_COLOR : D3D12_RESOURCE_STATE_RENDER_TARGET;
+
+    // We need to render the scene capture texture to the right side of the double wide texture.
     auto pre_render = [&](d3d12::CommandContext& commands, ID3D12Resource* render_target) {
         if (render_target == nullptr) {
             return;
         }
 
-        // Also the same for right, even though it's not a double wide texture
+        if (is_silent_hill_f_executable() && using_real_backbuffer_fallback_frame &&
+            m_game_batch != nullptr && m_game_tex.texture != nullptr && m_scene_capture_tex.texture != nullptr &&
+            m_game_tex.srv_heap != nullptr && m_scene_capture_tex.srv_heap != nullptr) {
+            d3d12::TextureContext openxr_target{};
+            openxr_target.texture = render_target;
+
+            if (openxr_target.create_rtv(device, DXGI_FORMAT_B8G8R8A8_UNORM_SRGB)) {
+                const auto game_desc = m_game_tex.texture->GetDesc();
+                const auto scene_desc = m_scene_capture_tex.texture->GetDesc();
+                const auto target_desc = render_target->GetDesc();
+                const auto eye_width = (LONG)(target_desc.Width / 2);
+                const auto eye_height = (LONG)target_desc.Height;
+
+                D3D12_RESOURCE_BARRIER src_barriers[2]{};
+                src_barriers[0].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+                src_barriers[0].Transition.pResource = m_game_tex.texture.Get();
+                src_barriers[0].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+                src_barriers[0].Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
+                src_barriers[0].Transition.StateAfter = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+                src_barriers[1] = src_barriers[0];
+                src_barriers[1].Transition.pResource = m_scene_capture_tex.texture.Get();
+                src_barriers[1].Transition.StateBefore = ENGINE_SRC_COLOR;
+                commands.cmd_list->ResourceBarrier(2, src_barriers);
+
+                float clear_color[] = {0.0f, 0.0f, 0.0f, 0.0f};
+                commands.clear_rtv(render_target, openxr_target.get_rtv(), clear_color, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+                const RECT left_src{0, 0, (LONG)game_desc.Width, (LONG)game_desc.Height};
+                const RECT right_src{0, 0, (LONG)scene_desc.Width, (LONG)scene_desc.Height};
+                const RECT left_dst{0, 0, eye_width, eye_height};
+                const RECT right_dst{eye_width, 0, eye_width * 2, eye_height};
+
+                d3d12::render_srv_to_rtv(m_game_batch.get(), commands.cmd_list.Get(), m_game_tex, openxr_target,
+                    left_src, left_dst, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+                d3d12::render_srv_to_rtv(m_game_batch.get(), commands.cmd_list.Get(), m_scene_capture_tex, openxr_target,
+                    right_src, right_dst, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+                std::swap(src_barriers[0].Transition.StateBefore, src_barriers[0].Transition.StateAfter);
+                std::swap(src_barriers[1].Transition.StateBefore, src_barriers[1].Transition.StateAfter);
+                commands.cmd_list->ResourceBarrier(2, src_barriers);
+
+                SPDLOG_INFO_EVERY_N_SEC(1,
+                    "[SHf D3D12] Composited real backbuffer + scene capture into OpenXR double-wide target {}x{}",
+                    target_desc.Width, target_desc.Height);
+                return;
+            }
+        }
+
         D3D12_BOX left_src_box{
             .left = 0,
             .top = 0,
@@ -237,7 +445,7 @@ vr::EVRCompositorError D3D12Component::on_frame(VR* vr) {
             m_game_tex.texture.Get(), m_scene_capture_tex.texture.Get(), render_target,
             &left_src_box, &left_src_box,
             0, 0, 0, m_backbuffer_size[0] / 2, 0, 0,
-            D3D12_RESOURCE_STATE_RENDER_TARGET,
+            scene_copy_src_state,
             D3D12_RESOURCE_STATE_RENDER_TARGET
         );
     };
@@ -1327,6 +1535,10 @@ void D3D12Component::on_reset(VR* vr) {
         commands.reset();
     }
 
+    for (auto& commands : m_scene_capture_tex_commands) {
+        commands.reset();
+    }
+
     for (auto& backbuffer : m_backbuffer_textures) {
         backbuffer.reset();
     }
@@ -1416,8 +1628,9 @@ bool D3D12Component::setup() {
         backbuffer = real_backbuffer;
     }
 
-    if (backbuffer == nullptr && is_the_outer_worlds2_executable()) {
-        SPDLOG_INFO_EVERY_N_SEC(1, "[TOW2 D3D12] Fake stereo render target is null during setup; falling back to real backbuffer");
+    if (backbuffer == nullptr && (is_the_outer_worlds2_executable() || is_silent_hill_f_executable())) {
+        SPDLOG_INFO_EVERY_N_SEC(1, "[{} D3D12] Fake stereo render target is null during setup; falling back to real backbuffer",
+            is_silent_hill_f_executable() ? "SHf" : "TOW2");
         backbuffer = real_backbuffer;
         using_real_backbuffer_fallback = true;
     }

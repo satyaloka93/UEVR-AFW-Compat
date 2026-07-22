@@ -72,6 +72,7 @@ private:
     d3d12::TextureContext m_game_tex{};
     d3d12::TextureContext m_scene_capture_tex{};
     std::array<d3d12::CommandContext, 3> m_game_tex_commands{};
+    std::array<d3d12::CommandContext, 3> m_scene_capture_tex_commands{};
     std::array<d3d12::TextureContext, 2> m_2d_screen_tex{};
     std::vector<std::unique_ptr<d3d12::TextureContext>> m_backbuffer_textures{};
 
