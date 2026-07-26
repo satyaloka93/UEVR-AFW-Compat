@@ -346,6 +346,23 @@ bool is_the_outer_worlds2_executable_vr() {
 
     return result;
 }
+
+bool is_silent_hill_2_executable_vr() {
+    static const bool result = []() {
+        const auto exe_path = utility::get_module_pathw(utility::get_executable());
+        if (!exe_path.has_value()) {
+            return false;
+        }
+
+        auto filename = std::filesystem::path(*exe_path).filename().wstring();
+        std::transform(filename.begin(), filename.end(), filename.begin(), [](wchar_t ch) {
+            return static_cast<wchar_t>(std::towlower(static_cast<wint_t>(ch)));
+        });
+        return filename == L"shproto-win64-shipping.exe";
+    }();
+
+    return result;
+}
 }
 
 std::shared_ptr<VR>& VR::get() {
@@ -2175,6 +2192,15 @@ void VR::on_config_load(const utility::Config& cfg, bool set_defaults) {
         option.config_load(cfg, set_defaults);
     }
 
+    // SH2 (SHProto) cannot cold-start in AFW (no carve-out for the reworked AFW
+    // bring-up path). This MUST run before initialize_openxr_swapchains() below, or
+    // the swapchains get created for AFW and the later value flip leaves a broken
+    // hybrid ("double-wide swapchain not created"). Runtime switch to AFW still works.
+    if (is_silent_hill_2_executable_vr() && m_rendering_method->value() != RenderingMethod::NATIVE_STEREO) {
+        spdlog::warn("[SH2] Forcing Native Stereo before swapchain init (AFW cold-start unsupported); switch to AFW at runtime if desired");
+        m_rendering_method->value() = RenderingMethod::NATIVE_STEREO;
+    }
+
     if (get_runtime() != nullptr && get_runtime()->loaded) {
         get_runtime()->on_config_load(cfg, set_defaults);
 
@@ -2196,7 +2222,7 @@ void VR::on_config_load(const utility::Config& cfg, bool set_defaults) {
     m_overlay_component.on_config_load(cfg, set_defaults);
 
     if (m_cvar_manager != nullptr) {
-        m_cvar_manager->on_config_load(cfg, set_defaults);   
+        m_cvar_manager->on_config_load(cfg, set_defaults);
     }
 
     // Load camera offsets
