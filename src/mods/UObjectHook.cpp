@@ -217,8 +217,8 @@ void UObjectHook::hook() {
         if (uobjectarray != nullptr) {
             for (auto i = 0; i < uobjectarray->get_object_count(); ++i) {
                 auto object = uobjectarray->get_object(i);
-                if (object == nullptr || object->get_object() == nullptr) continue;
-                add_new_object(object->get_object());
+                if (object == nullptr || object->object == nullptr) continue;
+                add_new_object(object->object);
             }
             SPDLOG_INFO("[UObjectHook] Dumper mode: added {} existing objects", m_objects.size());
         }
@@ -264,11 +264,11 @@ void UObjectHook::hook() {
     for (auto i = 0; i < uobjectarray->get_object_count(); ++i) {
         auto object = uobjectarray->get_object(i);
 
-        if (object == nullptr || object->get_object() == nullptr) {
+        if (object == nullptr || object->object == nullptr) {
             continue;
         }
 
-        add_new_object(object->get_object());
+        add_new_object(object->object);
     }
 
     SPDLOG_INFO("[UObjectHook] Added {} existing objects", m_objects.size());
@@ -304,8 +304,8 @@ void UObjectHook::hook_process_event() {
     for (auto i = 0; i < uobjectarray->get_object_count(); ++i) {
         const auto object = uobjectarray->get_object(i);
 
-        if (object != nullptr && object->get_object() != nullptr) {
-            first_obj = (sdk::UObject*)object->get_object();
+        if (object != nullptr && object->object != nullptr) {
+            first_obj = (sdk::UObject*)object->object;
             break;
         }
     }
@@ -4243,7 +4243,7 @@ void* UObjectHook::add_object(void* rcx, void* rdx, void* r8, void* r9, void* st
                     }
 
                     const auto item = object_array->get_object((int32_t)index);
-                    return item != nullptr && item->get_object() == object;
+                    return item != nullptr && item->object == object;
                 };
 
                 if (!is_array_backed_object(candidate)) {
