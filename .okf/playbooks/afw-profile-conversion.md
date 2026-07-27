@@ -7,7 +7,7 @@ tags:
 - profile
 - config
 - uevr-utils
-timestamp: '2026-07-20T00:00:00Z'
+timestamp: '2026-07-27T09:30:00+09:00'
 ---
 
 # Reference example and scope
@@ -23,12 +23,17 @@ port settings only after per-game validation.
 
 # 1. SH2 config pairing
 
-The live SH2 profile uses:
+The validated unified-branch SH2 profile may remain saved as:
 
 ```text
 VR_RenderingMethod=3
 VR_NativeStereoFix=false
 ```
+
+At branch tip `a3d3128c`, the saved AFW value is **not** the cold-start method:
+commit `75c172c5` forces SHProto to Native in memory before OpenXR swapchain
+creation. After Native stabilizes, the user may switch to the saved AFW mode.
+This distinction is essential when comparing the profile with startup logs.
 
 Supporting changes seen in the SH2 conversion (apply per taste, not required):
 
@@ -40,9 +45,10 @@ Supporting changes seen in the SH2 conversion (apply per taste, not required):
 - Debug/recenter hotkeys unbound (`-1`) once stable
 
 **Directional mode-switch rule:** AFW → Native live switching is unsafe.
-Some games can start Native and switch Native → AFW after fragile title setup;
-follow the game concept rather than forcing one startup rule
-([/decisions/narrow-port-scope.md](../decisions/narrow-port-scope.md)).
+SH2 now starts Native by code and has a promising runtime Native → AFW result
+on the exact shipped checkpoint. Follow the [SH2 game concept](../games/silent-hill-2.md)
+rather than interpreting the saved `VR_RenderingMethod=3` as AFW cold-start;
+follow the [narrow-port decision](../decisions/narrow-port-scope.md) for other games.
 
 # 2. Independent script-stack migration
 

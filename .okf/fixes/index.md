@@ -22,7 +22,7 @@ game shows the same symptom.
 * [CVar scanner bypass](tow2-cvar-scanner-bypass.md) — decisive fix for the original TOW2 title-splash stall.
 * [TOW2 analyzer threshold](tow2-view-extension-analyzer-threshold.md) — TOW2-only 40-sample discovery correction; still timing-sensitive.
 * [TOW2 AddObject candidate guard](tow2-addobject-candidate-guard.md) — per-call FUObjectArray/class-hierarchy validation derived from a live-stall dump.
-* [SH2 AFW cold-start / Native-force](sh2-shproto-afw-cold-start-native-force.md) — un-carved-out SH2 unified onto the fork by dropping the hardened UE5.8 UESDK and forcing Native before swapchain init.
+* [SH2 AFW cold-start / Native-force](sh2-shproto-afw-cold-start-native-force.md) — shipped unified branch pins baseline UESDK and forces Native before swapchain init; runtime AFW remains exact-checkpoint validation rather than a general safety claim.
 
 ## AFW image quality and lifecycle
 

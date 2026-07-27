@@ -15,10 +15,11 @@ the fixes that produced them, and the playbooks for analysing new problems.
 * [The Outer Worlds 2](games/outer-worlds-2.md) — safe Native startup and beta.4 Previous Frame AFW zero-ghosting checkpoint.
 * [Hogwarts Legacy](games/hogwarts-legacy.md) — transition-cooldown crash fix.
 * [Silent Hill f](games/silent-hill-f.md) — alpha.2 publishes the runtime-tested Native/UE5.7 injection candidate and profile; DLSS still needs a manual workaround and AFW remains limited.
+* [Silent Hill 2](games/silent-hill-2.md) — shipped unified-branch checkpoint forces Native before OpenXR swapchain creation; runtime AFW is promising only on the exact amended-runtime pairing.
 
 ## Fixes
 
-* [Fix index](fixes/index.md) — 16 reusable engine/runtime fixes, including SHf UE5.7 bootstrap, stale attachment, TOW2 title/UObject, and AFW beta.4 guards.
+* [Fix index](fixes/index.md) — 17 reusable engine/runtime fixes, including SH2 Native-first startup, SHf UE5.7 bootstrap, stale attachment, TOW2 title/UObject, and AFW beta.4 guards.
 
 ## Playbooks
 
@@ -32,7 +33,7 @@ the fixes that produced them, and the playbooks for analysing new problems.
 
 ## Projects (ongoing)
 
-* [PureDark AFW integration](projects/puredark-afw-integration.md) — beta.4 zero-ghosting result, exact hashes and remaining validation.
+* [PureDark AFW integration](projects/puredark-afw-integration.md) — beta.4 game-compatibility checkpoints, including the shipped SH2/Avowed/TOW2 unified branch, exact hashes and remaining validation.
 
 ## Decisions
 

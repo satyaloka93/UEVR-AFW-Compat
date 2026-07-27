@@ -1,7 +1,10 @@
 # Update Log
 
+## 2026-07-27
+* **Review**: Reconciled [Silent Hill 2 (SHProto)](games/silent-hill-2.md), the [Native cold-start fix](fixes/sh2-shproto-afw-cold-start-native-force.md), the [AFW project](projects/puredark-afw-integration.md), the [UESDK scope decision](decisions/narrow-port-scope.md), and the [profile comparison](playbooks/afw-profile-conversion.md) with shipped branch `a3d3128c`. Replaced stale local commit references with `e0f7c5c7`/`75c172c5`, recorded deployed backend/PDB/amended-PDAFW hashes, restored GitHub-navigable relative links, and scoped runtime AFW to the exact tested checkpoint. Preserved earlier official-beta.4 GPU-hang/bugcheck cautions and made SHf revalidation explicit after the UESDK pin change.
+
 ## 2026-07-26
-* **Capture**: Added [Silent Hill 2 (SHProto)](games/silent-hill-2.md) and the [SH2 AFW cold-start / Native-force fix](fixes/sh2-shproto-afw-cold-start-native-force.md). Documented why SH2 — which has no per-game carve-out and rides baseline `./UEVR`'s generic shared path — broke on the fork (hardened UE5.8 UESDK GPU-hang + ungated `276300db` AFW cold-start rework), and how it was unified: drop the hardened UESDK to baseline `491f973a` and force Native rendering *before* `initialize_openxr_swapchains()` (the mis-placed force left a value=Native/swapchains=AFR hybrid → "Double wide swapchain not created"). Confirmed working across repeated launches; runtime AFW switch works and reverts to Native on quit. Branch `sh2-compat-gating` (unpushed). Left the back-buffer/FRHITexture2D symptom-chasing extensions recorded as superseded.
+* **Capture**: Added the initial SH2 game/fix concepts from the local `sh2-compat-gating` investigation. That local history was subsequently condensed and shipped as `e0f7c5c7` → `75c172c5` → `a3d3128c`; the 2026-07-27 review is the canonical published state.
 
 ## 2026-07-22
 * **Maintenance**: Published SHf compatibility source commit `cc0c43f9` and prerelease alpha.2 with the rebuilt backend plus sanitized [Avowed](games/avowed.md) and [Silent Hill f](games/silent-hill-f.md) profiles; SHf now has an installable Native-start candidate while AFW and automatic DLSS repair remain explicitly limited.

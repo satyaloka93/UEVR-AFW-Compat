@@ -1,15 +1,16 @@
 ---
 type: project
 title: PureDark AFW integration — ongoing effort state
-description: Live state of the narrow Avowed/TOW2/SHf compatibility port onto PureDark AFW; TOW2 beta.4 Previous Frame is validated, and source commit cc0c43f9 plus alpha.2 publish SHf's working experimental Native/AFW candidate and profiles.
+description: Live state of the narrow AFW compatibility fork; the shipped unified source now covers SH2, Avowed and TOW2 with a baseline UESDK pin and SH2 Native-first startup, while SHf remains tied to the separate alpha.2/UE5.7 checkpoint pending revalidation.
 tags:
 - afw
 - puredark
 - avowed
 - tow2
 - shf
+- sh2
 - ongoing
-timestamp: '2026-07-22T10:48:00+09:00'
+timestamp: '2026-07-27T09:30:00+09:00'
 resource: .
 ---
 
@@ -23,9 +24,10 @@ standing rules are in [narrow port scope](../decisions/narrow-port-scope.md).
 
 - Public branch: `afw-beta4-game-compat`, based on PureDark
   `AFW` commit `e260ffe8` (`UEVR_AFW_v1.0-beta.4` tag).
-- The public source directly pins tested hardened UESDK `9034a857` in gated
-  private `PureDark/UESDK`; authorized builders fetch it through the ordinary
-  recursive submodule workflow.
+- Current branch tip `a3d3128c` pins baseline UESDK `491f973a` for the shipped
+  SH2/Avowed/TOW2 unified scope. Historical alpha.1/alpha.2 releases remain
+  built against `9034a857`; SHf must be revalidated before this branch replaces
+  alpha.2 for that UE5.7 title.
 - Joey integration is preserved at `021d45b7` plus private stashes/evidence;
   only audited corrections are intended for publication with attribution.
 - Experimental deployment remains isolated at `<deploy-dir>`; the primary UEVR
@@ -90,7 +92,9 @@ remain one ABI checkpoint.
 
 - Authoritative OpenXR wait-frame timing, Native-only direct RHI pose
   publication, monotonic second pass and 300-byte stereo scan.
-- Hardened UESDK + Avowed-only AddObject candidate guard.
+- Avowed-only AddObject candidate guard retained on baseline UESDK callers;
+  Avowed was reported working after the UESDK pin change, but repeated
+  crafting/loadout validation remains required.
 - AFW hot work gated to active AFW frames.
 - Verified `GetDesiredNumberOfViews` signature and Joey's generation-aware,
   eye-confirmed ghosting state machine with bounded bootstrap.
@@ -157,6 +161,22 @@ The live TOW2 profile was reset after the successful run to Native startup with
 Ghosting Fix/Bootstrap off; Previous Frame mode remains stored. Enable AFW and
 ghosting only after reaching gameplay.
 
+# SH2 unified Native-first checkpoint
+
+The shipped branch line is `e0f7c5c7` → `75c172c5` → `a3d3128c`.
+It pins UESDK `491f973a` and forces `SHProto-Win64-Shipping.exe` to Native
+immediately before OpenXR swapchain creation. Repeated launches and a runtime
+Native-to-AFW switch were reported working on backend
+`eec89cd4e000ab83c0392caac59e73588125b71b8e054731f6472e7b7b08efbe`
+with amended beta.4-derived PDAFW runtime
+`b129118ba239e0c9fd7b0c803dab0199242af7142c7b9541e656e2f3eaca8ff9`.
+
+This is not a general clearance of prior SH2 AFW failures. AFW cold-start is
+still unsupported, AFW-to-Native still requires restart, and earlier official
+beta.4/hotfix GPU hangs and the NVIDIA bugcheck remain valid for their exact
+checkpoints. See [Silent Hill 2](../games/silent-hill-2.md) and the
+[Native cold-start fix](../fixes/sh2-shproto-afw-cold-start-native-force.md).
+
 # SHf local compatibility candidate
 
 Published source commit `cc0c43f9` ports the Joey-derived UE5.7/OpenXR
@@ -199,11 +219,14 @@ immutable historical release whose SHf unsupported warning is still correct.
    the stale-attachment guard protects the original dump path without breaking
    weapon recovery.
 6. Reproduce the alpha.2 SHf backend/profile hashes across sustained Native
-   gameplay and transitions; keep AFW experimental until image quality and
-   lifecycle limits are resolved.
-   Separately regression-test actual SH2 and PSVR2 input with beta.4.
-7. Remove the temporary hang-dump watchdog after launch reliability is proven.
-8. Keep releases marked prerelease until these checks pass; retain temporary
+   gameplay and transitions; separately determine whether UESDK `491f973a`
+   preserves SHf's UE5.7 bootstrap before claiming the unified branch covers it.
+7. Repeat SH2 Native launches, sustained Combined/Previous AFW gameplay and
+   transitions on the exact `eec89cd4...` / `b129118b...` checkpoint; preserve
+   earlier GPU-hang and bugcheck cautions until that evidence exists.
+8. Re-confirm TOW2 after the UESDK pin change and regression-test PSVR2 input.
+9. Remove the temporary hang-dump watchdog after launch reliability is proven.
+10. Keep releases marked prerelease until these checks pass; retain temporary
    diagnostics only while their corresponding race remains unresolved.
 
 # Related
@@ -211,6 +234,7 @@ immutable historical release whose SHf unsupported warning is still correct.
 - [Avowed](../games/avowed.md)
 - [The Outer Worlds 2](../games/outer-worlds-2.md)
 - [Silent Hill f](../games/silent-hill-f.md)
+- [Silent Hill 2](../games/silent-hill-2.md)
 - [Checkpointing and recovery](../playbooks/checkpoint-and-recovery.md)
 
 # Citations

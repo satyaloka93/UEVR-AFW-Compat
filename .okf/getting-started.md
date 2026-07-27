@@ -5,7 +5,7 @@ description: Map of this bundle — per-game working states, the engine fixes th
 tags:
 - getting-started
 - uevr
-timestamp: '2026-07-20T00:00:00Z'
+timestamp: '2026-07-27T09:30:00+09:00'
 ---
 
 # What this bundle is
@@ -24,6 +24,7 @@ than published.
    - [/games/outer-worlds-2.md](games/outer-worlds-2.md)
    - [/games/hogwarts-legacy.md](games/hogwarts-legacy.md)
    - [/games/silent-hill-f.md](games/silent-hill-f.md)
+   - [/games/silent-hill-2.md](games/silent-hill-2.md)
 2. **Fixes** — the individual engine/runtime corrections, each reusable when a
    new game shows the same symptom: see [/fixes/index.md](fixes/index.md).
 3. **Playbooks** — how to analyse a new problem:
@@ -46,6 +47,7 @@ Almost every game problem so far landed in one of these:
 | Stereo hook discovery | fails to hook, one eye black, crash at startup | [/fixes/stereo-vtable-scan-widening.md](fixes/stereo-vtable-scan-widening.md), [/fixes/render-target-validation-hardening.md](fixes/render-target-validation-hardening.md) |
 | Native stereo stability | crash after load/world transition, right-eye corruption | [/fixes/native-stereo-safe-activation.md](fixes/native-stereo-safe-activation.md) |
 | Present/OpenXR pipeline | title-screen stall, frozen frame counter, `XR_ERROR_TIME_INVALID` | [/fixes/tow2-backbuffer-fallback-openxr-prep.md](fixes/tow2-backbuffer-fallback-openxr-prep.md), [/fixes/openxr-authoritative-wait-frame.md](fixes/openxr-authoritative-wait-frame.md) |
+| AFW cold-start ownership | saved AFW profile creates missing/double-wide swapchain hybrid | [/fixes/sh2-shproto-afw-cold-start-native-force.md](fixes/sh2-shproto-afw-cold-start-native-force.md) |
 | UE5.7 injection/bootstrap | repeated UI/render-target setup, null FRHI vtable, OpenXR frame opens before a valid submit | [/fixes/shf-ue57-openxr-bootstrap.md](fixes/shf-ue57-openxr-bootstrap.md) |
 | UObject discovery | title/game-thread freeze, unsafe AddObject candidates | [/fixes/tow2-addobject-candidate-guard.md](fixes/tow2-addobject-candidate-guard.md), [/playbooks/in-process-hang-dump.md](playbooks/in-process-hang-dump.md) |
 | AFW reconstruction | weapons/moving objects trail despite stable eye ownership | [/fixes/afw-beta4-motion-vector-scale.md](fixes/afw-beta4-motion-vector-scale.md) |
