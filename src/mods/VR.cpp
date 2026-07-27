@@ -3051,6 +3051,9 @@ void VR::on_draw_sidebar_entry(std::string_view name) {
                 ImGui::SetNextItemOpen(true, ImGuiCond_::ImGuiCond_Once);
                 if (ImGui::TreeNode("Alternate Frame Warping")) {
                     m_framewarp_mode->draw("Framewarp Mode");
+                    if (is_no_dlss()) {
+                        ImGui::TextWrapped("No DLSS instance detected. Make sure DLSS is enabled in the game.");
+                    }
                     m_clear_before_framewarp->draw("Clear Before Framewarp");
                     m_framewarp_debug->draw("Debug Framewarp");
                     ImGui::Spacing();
