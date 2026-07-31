@@ -50,6 +50,32 @@ This is a source-branch/deployment checkpoint, not a tagged binary release.
 The backend does not expose a useful embedded commit string, so identify it by
 hash together with its PDB and PDAFW runtime.
 
+## 2026-07-31 revalidation on the migrated VS toolchain
+
+A Visual Studio auto-update removed the original toolchain (MSVC 14.37, Windows
+SDK 10.0.22000); builds now use MSVC 14.44 / SDK 10.0.26100 after a full
+`build/` wipe and reconfigure. The same shipped source rebuilt on the new
+toolchain was confirmed working for SH2 launch:
+
+| Artifact | SHA-256 |
+|---|---|
+| `UEVRBackend.dll` (new toolchain) | `b72b72ae52329f6267e6d3670e9081fdfa3fde76ed2cb33763c02b633b23e1b5` |
+| `UEVRBackend.pdb` (new toolchain) | `abb22154061a1d96314f8f7d66434aa50d27e17f9ea250e15e6286c4a92f0d1e` |
+
+The original 14.37-built pair is preserved beside it as
+`UEVRBackend.shipped-unified.dll`/`.pdb`.
+
+The same session also re-ran the UESDK A/B empirically: branch `shf-uesdk-ab`
+(shipped tip + revert of `e0f7c5c7`, i.e. hardened UESDK `9034a857` restored,
+nothing else changed) froze SH2 before world load — repeating
+`XR_ERROR_TIME_INVALID`/`XR_FRAME_DISCARDED` with growing display-time deltas
+and "vtable is already hooked" warnings. This re-confirms the baseline
+`491f973a` pin as a checkpoint requirement for SH2 even though the hardened
+SDK's new `FUObjectItem` layout code is version-gated to UE5.7+ executables;
+the mechanism by which it breaks SH2 remains unproven. The A/B also showed the
+UESDK pin is *not* the cause of the concurrent
+[SHf regression](silent-hill-f.md) (identical SHf crash on both revisions).
+
 # Operating procedure
 
 1. Start a fresh SH2 process and inject once the game can render a real 3D

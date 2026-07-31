@@ -25,7 +25,9 @@ timestamp: '2026-07-22T10:48:00+09:00'
 - Historical rendering baseline: Native Stereo in Joey Hodge's UEVR lineage.
 - Current status: the narrow PureDark beta.4 compatibility source now injects
   reliably, renders both eyes in Native Stereo, keeps resource allocation
-  bounded, and permits a manual Native → AFW transition.
+  bounded, and permits a manual Native → AFW transition. **This status was
+  invalidated by a Steam game update — see the 2026-07-31 regression section
+  below.**
 - Publication status: source commit `cc0c43f9` publishes the runtime-tested
   candidate. Prerelease alpha.2 includes its backend and a clean SHf profile;
   alpha.1 remains unsupported for SHf.
@@ -50,6 +52,38 @@ CVar/D3D retries, and stable owned render resources all had to work together.
 
 Do not confuse SHf with **Silent Hill 2** (`SHProto-Win64-Shipping.exe`), which
 has a different profile and AFW history.
+
+# 2026-07-31 regression: Steam game update invalidated the alpha.2 candidate
+
+SHf was patched on Steam on **2026-07-23** (`SHf-Win64-Shipping.exe` and pak
+files dated 2026-07-23 15:48) — one day after the alpha.2 validation. The next
+SHf test (2026-07-30, on the shipped unified branch) crashed during game load,
+~15 s after injection, with no user-mode minidump.
+
+What was established before concluding:
+
+- **The UESDK pin is ruled out.** The crash was A/B tested on the shipped
+  backend (baseline UESDK `491f973a`) and on branch `shf-uesdk-ab` (identical
+  source with hardened UESDK `9034a857` restored). The crash signature was
+  identical in both runs, and the hardened SDK's "Using UE5.7+ FUObjectItem
+  layout" detection line never fired for the patched exe. The SH2 unification
+  work did not break SHf; the game update did — the ordering was coincidental.
+- **Failing scans against the patched binary** (candidate causes, unproven):
+  `Failed to find PostInitProperties virtual function! A crash may occur!`;
+  `[FViewport] Failed to find GetViewportSizeXY index`;
+  `Failed to locate SlateRHIRenderer::DrawWindow_RenderThread`;
+  `[FUObjectArray::get] Failed to determine chunk size` (also present in
+  benign SH2 runs, so not decisive alone). The bounded-bring-up rules below
+  already warn that unproven PostInitProperties/viewport-provider layout must
+  be skipped rather than trusted.
+- The SHf-specific gates still fire on the new exe (`[SHf] Forcing
+  FSceneViewport separate RT`, `[SHf][D3D12] Creating owned stable scene
+  copy`), and the log ends in an `XR_ERROR_TIME_INVALID`/`XR_FRAME_DISCARDED`
+  pair — the run dies after render bring-up, during load-time UObject churn.
+
+Recovery requires re-deriving the UE5.7 bootstrap offsets/scans against the
+patched executable; everything below this section describes the **pre-update**
+binary and remains the reference for what a working bring-up looked like.
 
 # Why baseline UEVR originally failed
 

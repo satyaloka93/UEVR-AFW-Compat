@@ -7,6 +7,7 @@ game shows the same symptom.
 
 * [Vtable scan widening](stereo-vtable-scan-widening.md) — game patch moved the FFakeStereoRendering reference; scan 100 → 300 bytes.
 * [Render-target validation hardening](render-target-validation-hardening.md) — UESDK: validate offsets, never blind-fallback.
+* [SDK discovery cache port](sdk-discovery-cache-port.md) — per-launch offset discovery is a startup race against UEVR's own hooks; cache validated discoveries (2 minimal UESDK commits), reject the per-frame-rescan third commit.
 
 ## Native stereo stability
 

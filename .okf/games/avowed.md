@@ -91,6 +91,20 @@ One immediate crafting retest completed without a crash, but did not emit the
 protective stale-detach telemetry; repeat crafting/loadout transitions remain
 part of validation.
 
+# 2026-07-31: startup discovery race — fixed by SDK discovery cache
+
+With zero on-disk changes (game exe, driver, SteamVR, profile all unchanged),
+Avowed abruptly went from launching reliably to failing every launch with
+three different crash/hang signatures, all inside UEVR's per-launch offset
+discovery. Root cause was a latent startup race in baseline discovery (the
+scanner disassembles vtable entries UEVR has already hooked), not any
+regression. Fixed by porting the minimal two-commit SDK discovery cache onto
+the pinned baseline UESDK; the profile's existing `cache/sdk_discovery.json`
+now short-circuits the fragile scans. Full analysis, the rejected third cache
+commit (per-frame rescan performance regression), and the shrunken-menu
+`no_tag` ImGui fix: [SDK discovery cache port](../fixes/sdk-discovery-cache-port.md).
+Validated backend: `54c5f9d3…`, performance confirmed back to normal.
+
 # Remaining known issues
 
 - Perf hit during 2H-weapon / loadout-recovery windows.
