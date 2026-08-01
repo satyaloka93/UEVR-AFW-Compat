@@ -2,6 +2,7 @@
 
 Repeatable methods for analysing new UEVR game problems.
 
+* [Basic 6DoF setup](basic-6dof-setup.md) — camera + weapon/hand attachment, native-UObjectHook-first then Lua; the motion-controller API, Lua sandbox limits, and the object-lifetime rules that keep a profile stable.
 * [Staged fix methodology](staged-fix-methodology.md) — the core loop: evidence → hypothesis → one narrow scoped change + telemetry → test → keep/revert.
 * [Log-signature triage](log-signature-triage.md) — symptom-to-fix table for `log.txt`; classify crash vs stall vs visual first.
 * [Crash dump analysis](crash-dump-analysis.md) — minidump parsing and symbolization; the faulting module is not the culprit.

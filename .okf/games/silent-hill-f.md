@@ -53,37 +53,107 @@ CVar/D3D retries, and stable owned render resources all had to work together.
 Do not confuse SHf with **Silent Hill 2** (`SHProto-Win64-Shipping.exe`), which
 has a different profile and AFW history.
 
-# 2026-07-31 regression: Steam game update invalidated the alpha.2 candidate
+# 2026-07-31: load crash was PROFILE-caused, not the game update (superseding the first analysis)
 
-SHf was patched on Steam on **2026-07-23** (`SHf-Win64-Shipping.exe` and pak
-files dated 2026-07-23 15:48) — one day after the alpha.2 validation. The next
-SHf test (2026-07-30, on the shipped unified branch) crashed during game load,
-~15 s after injection, with no user-mode minidump.
+The initial 2026-07-30 analysis blamed the 2026-07-23 Steam patch for breaking
+the bootstrap. That was **wrong** and is corrected here (user-confirmed):
 
-What was established before concluding:
+- **No-profile injection works on the patched exe** — on both the AFW-Compat
+  backend and the user's main-fork build (3rd person, and AFW gave a HUGE
+  performance boost — the older "AFW not recommended for SHf" guidance in this
+  document is obsolete).
+- **The crash was the first-person profile.** It also crashed a third party's
+  AFW build. Root cause, symbolized from UE's own crash dumps
+  (`%LOCALAPPDATA%\SHf\Saved\Crashes\` — UE's handler catches the AV, which is
+  why UEVR/WER never produced dumps): the profile's `shf.lua` lantern search
+  calls `find_first_of` → native `get_first_object_by_class`, a **full
+  GUObjectArray walk from tick context during level-load churn** → garbage
+  item pointer (FName text "Scen…" read as an object pointer, noncanonical →
+  `EXCEPTION_ACCESS_VIOLATION reading 0xffffffffffffffff`).
+- **Fix: a 12-second post-level-load settle guard** before the class scan
+  (patched into the active profile's `shf.lua`; pristine original preserved in
+  `SHf-Win64-Shipping-LETMEIN`). With the guard, the profile injects into
+  first person on the AFW-Compat backend.
+- The "failing scans" the first analysis blamed (PostInitProperties,
+  GetViewportSizeXY, DrawWindow_RenderThread, chunk-size default) appear in
+  known-good pre-update logs too — benign noise, not causes. The UESDK-pin
+  A/B (identical crash on `491f973a` and `9034a857`) remains valid evidence
+  that the SH2 unification did not break SHf.
+- **Engine version correction: SHf is UE 5.4.2** (`5.4.2-0+++NOCEDev`, every
+  crash context back to 2026-07-07). The "UE5.7" label throughout this
+  document came from branch-naming folklore; treat version-specific claims
+  below accordingly.
 
-- **The UESDK pin is ruled out.** The crash was A/B tested on the shipped
-  backend (baseline UESDK `491f973a`) and on branch `shf-uesdk-ab` (identical
-  source with hardened UESDK `9034a857` restored). The crash signature was
-  identical in both runs, and the hardened SDK's "Using UE5.7+ FUObjectItem
-  layout" detection line never fired for the patched exe. The SH2 unification
-  work did not break SHf; the game update did — the ordering was coincidental.
-- **Failing scans against the patched binary** (candidate causes, unproven):
-  `Failed to find PostInitProperties virtual function! A crash may occur!`;
-  `[FViewport] Failed to find GetViewportSizeXY index`;
-  `Failed to locate SlateRHIRenderer::DrawWindow_RenderThread`;
-  `[FUObjectArray::get] Failed to determine chunk size` (also present in
-  benign SH2 runs, so not decisive alone). The bounded-bring-up rules below
-  already warn that unproven PostInitProperties/viewport-provider layout must
-  be skipped rather than trusted.
-- The SHf-specific gates still fire on the new exe (`[SHf] Forcing
-  FSceneViewport separate RT`, `[SHf][D3D12] Creating owned stable scene
-  copy`), and the log ends in an `XR_ERROR_TIME_INVALID`/`XR_FRAME_DISCARDED`
-  pair — the run dies after render bring-up, during load-time UObject churn.
+## Working first-person + AFW profile (2026-08-01, rebuilt)
 
-Recovery requires re-deriving the UE5.7 bootstrap offsets/scans against the
-patched executable; everything below this section describes the **pre-update**
-binary and remains the reference for what a working bring-up looked like.
+**Superseded the 2026-07-31 notes below.** The profile was rebuilt after further
+crashes: `main.lua` is gone entirely, replaced by minimal standalone scripts.
+Full rationale, the crash root causes, the UEVR Lua sandbox constraints and the
+rejected approaches are in
+[SHf profile rebuild](../fixes/shf-profile-rebuild-main-lua-removal.md).
+
+Active scripts in `SHf-Win64-Shipping/scripts/`:
+
+| File | Role |
+|---|---|
+| `00_settle.lua` | Settle gate (4 s after pawn stable, re-closes on pawn change); publishes `_G.SHF_SETTLED`, `_G.SHF_PAWN_ADDR` |
+| `91_button_swap.lua` | X↔B dodge remap (extracted from `main.lua`) |
+| `92_core_init.lua` | pawn/attachments/input/ik init, IK-mesh wiring, weapon grip callback, reload hardening |
+| `shf.lua` | First person, camera, movement, state gating (lantern scan disabled; ViewTarget guards added) |
+| `melee.lua` | 6DoF swing detection |
+| `examine.lua` | Examine-puzzle support |
+
+Parked: `main.lua`, `hands.lua`. Disabled: `90_weapon_attach.lua.disabled` (a
+working native-UObjectHook attach alternative that cannot produce the
+closing-hand grip pose). Pristine original profile preserved as
+`SHf-Win64-Shipping-LETMEIN` — do not modify.
+
+Config: `VR_RenderingMethod=3` (cold-start AFW), `VR_AFW_FramewarpMode=2`,
+`VR_PassDepthToRuntime=false`, `VR_LoadBlueprintCode=false`,
+`UObjectHook_EnabledAtStartup=true`, `smoothTurnSpeed=60`.
+
+Validated: no crashes across extended play, scene transitions, weapon swaps and
+save/exit/reload. ~72 fps avg in AFW at 80% resolution (45–89 range) versus ~90
+for a bare profile. Frame pacing is open work.
+
+## Working first-person + AFW profile (2026-07-31, validated)
+
+After iterative isolation, SHf now runs the rebuilt first-person profile in
+**cold-start AFW at a solid 90 fps** (couple-of-minutes session, lantern/knife
+switching clean) on the AFW-Compat backend `54c5f9d3…`. The profile
+(`SHf-Win64-Shipping`, pristine original preserved as
+`SHf-Win64-Shipping-LETMEIN`) is LETMEIN's config/scripts/data plus:
+
+1. `scripts/00_settle.lua` — loads FIRST and (a) wraps
+   `on_pre/post_engine_tick` registrations so all script callbacks stay
+   dormant until the local pawn is stable for 10 s (re-gates on pawn loss, so
+   every load screen is protected), and (b) **drops all stereo-view-offset
+   Lua callback registrations** — under AFW, scripts running through that
+   dispatch corrupt the heap (`ntdll` allocator AVs moments after scripts
+   activate; suspected transient position/rotation buffers on the AFW path;
+   Native-only sessions could re-enable them). Costs: melee attack camera pin
+   and decoupled-pitch-class camera features are disabled.
+   **NTFS load-order trap:** LuaLoader loads scripts via `directory_iterator`
+   = NTFS upcased-name order, where `_` sorts AFTER letters — an earlier
+   `_00_settle.lua` silently loaded LAST and gated nothing. Digit prefixes
+   (`00_`) genuinely load first.
+2. `scripts/shf.lua` — lantern `find_first_of` (full GUObjectArray walk)
+   **disabled entirely**: it crashed even in settled gameplay on lantern
+   re-equip (not just load churn). Cosmetic cost: lantern cutscene visibility
+   enforcement no-ops.
+3. `config.txt` — `VR_RenderingMethod=3` (cold-start AFW),
+   `VR_AFW_FramewarpMode=2` (mode 3/Combined has the crash rap sheet),
+   `VR_PassDepthToRuntime=false`; `data/input_parameters.json`
+   `smoothTurnSpeed` 106 → 60 (also adjustable via the scripts' in-game
+   "Smooth Turn Speed" slider — stock UEVR only exposes snap turn).
+
+Open items: the runtime Native↔AFW switch remains unsafe with this profile
+(heap corruption in/around the transition with Lua stereo callbacks
+registered) — cold-start the desired mode instead. DLSS may still need the
+manual in-game quality reapply after injection. Still held back:
+`uevr_mcp.dll`, OpenVR binding JSONs (unneeded under OpenXR). Backend
+follow-up: fix or gate the AFW-path Lua stereo-view dispatch so profiles keep
+camera features under AFW.
 
 # Why baseline UEVR originally failed
 
