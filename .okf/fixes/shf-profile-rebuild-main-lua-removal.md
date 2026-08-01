@@ -117,6 +117,39 @@ attachment updates every frame, not leftover debug code; the swing also tracks
 the game's dynamic resolution scaler hunting under variable script load.
 Frame-pacing work is open, not attempted.
 
+# What the rebuilt profile actually activates
+
+Base profile is **letmein-vr/SHF_UEVR** (https://github.com/letmein-vr/SHF_UEVR/);
+only the three scripts above plus config/uobjecthook state are local work.
+Computed from the transitive `require` graph: with `main.lua` removed,
+**33 of the base profile's 49 Lua modules load; 16 never load.**
+
+Active: `shf`, `melee`, `examine`, and libs `uevr_utils`, `ik`, `attachments`,
+`input`, `pawn`, `hands`, `hands_animation`, `animation`, `body_yaw`,
+`accessories`, `controllers`, `configui`, `laser`, `linetracer`, `particles`,
+`scope`, `uevr_debug`, `core/{lerp,math_lib,params,uevr_lib}`,
+`enums/{input,unreal}`, plus the `config/*` modules those pull in.
+
+Never loaded, and the cost:
+
+| Module | Consequence |
+|---|---|
+| `reticule` (+2 configs) | No aiming reticule — **likely required before firearms work** |
+| `gunstock` | No two-handed gun stabilisation — **also gun-relevant** |
+| `montage` | No montage-driven animation handling |
+| `interaction` | Interaction system absent (examine still works via `examine.lua`) |
+| `ui`, `widget`, `ui_config_dev` | No script UI overlays |
+| `gestures` | No gesture controls |
+| `remap` | Generic remapping absent; `91_button_swap.lua` covers dodge only |
+| `flicker_fixer` | Flicker workaround unavailable |
+| `core/tarray` | Unused — `scripts/plugins/tarray_helper.dll` is dead weight |
+| `uevr_dev`, `unit_test`, `particles_config_dev` | Developer/test only |
+
+None of the unloaded modules is load-bearing for the validated feature set
+(first person, hands/grip, melee, dodge, examine, scene transitions,
+save/reload). The two that matter for future work are `reticule` and
+`gunstock`, both firearm-related.
+
 # Known gaps / open work
 
 - **Firearms are untested.** All 14 calibration entries and the grip wiring are
