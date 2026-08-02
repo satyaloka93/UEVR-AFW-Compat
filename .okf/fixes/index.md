@@ -24,6 +24,7 @@ game shows the same symptom.
 * [CVar scanner bypass](tow2-cvar-scanner-bypass.md) — decisive fix for the original TOW2 title-splash stall.
 * [TOW2 analyzer threshold](tow2-view-extension-analyzer-threshold.md) — TOW2-only 40-sample discovery correction; still timing-sensitive.
 * [TOW2 AddObject candidate guard](tow2-addobject-candidate-guard.md) — per-call FUObjectArray/class-hierarchy validation derived from a live-stall dump.
+* [TOW2 explicit dynamic-component enrollment](tow2-explicit-component-enrollment.md) — after guarded discovery misses a late Steam weapon, enroll only an explicitly requested scene component after exact array/vtable/hierarchy validation; restores the missing 6DoF attachment gate without broad scanning.
 * [SH2 AFW cold-start / Native-force](sh2-shproto-afw-cold-start-native-force.md) — shipped unified branch pins baseline UESDK and forces Native before swapchain init; runtime AFW remains exact-checkpoint validation rather than a general safety claim.
 
 ## AFW image quality and lifecycle

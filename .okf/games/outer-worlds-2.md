@@ -1,23 +1,36 @@
 ---
 type: game-profile
 title: The Outer Worlds 2 — working VR state
-description: TOW2 reaches gameplay through a guarded Native/OpenXR startup and can switch to PureDark beta.4 Previous Frame AFW with zero observed ghosting; AddObject and analyzer timing guards remain essential.
+description: TOW2 reaches gameplay through guarded Native/OpenXR startup, can switch to Previous Frame AFW with zero observed ghosting, has true late-weapon 6DoF through explicit enrollment, and now provides a fixed controller-ray UEVR menu while preserving gameplay aim.
 tags:
 - tow2
 - outer-worlds-2
 - native-stereo
 - openxr
 - afw
-timestamp: '2026-07-20T18:54:40+09:00'
+- 6dof
+- uobjecthook
+- motion-controllers
+- menu
+- mouse-emulation
+timestamp: '2026-08-02T19:12:00+09:00'
 ---
 
 # Status
 
 Playable in Native Stereo and, after reaching gameplay, in PureDark AFW. The
 2026-07-20 beta.4 run produced smooth **Previous Frame Warping with no visible
-weapon or moving-object ghosting**. Startup is still timing-sensitive: keep the
-in-process hang diagnostic until repeated clean launches establish that the
-title analyzer is reliable.
+weapon or moving-object ghosting**. Committed backend source and a packaged
+profile overlay also restore controller-driven weapon translation for dynamic
+Steam weapon meshes.
+The profile-local framework capture now also matches SHf's gold-standard menu
+behavior: the menu remains fixed while the right-controller ray moves the mouse
+in both axes, then controller gameplay aim returns after close.
+Startup is still timing-sensitive: keep the in-process hang diagnostic until
+repeated clean launches establish that the title analyzer is reliable. The
+6DoF source is committed as `217162d7` and its overlay as `69d3a7b0`;
+a matching new release binary remains held until longer TOW2 and cross-game
+regression tests complete.
 
 # Safe startup state
 
@@ -80,6 +93,89 @@ See [the beta.4 motion-vector correction](../fixes/afw-beta4-motion-vector-scale
 - Destructive D3D rehook is suppressed while the window-message hook remains
   intact; DXGI factory/Present telemetry remains executable-scoped.
 
+# Steam weapon 6DoF: backend and profile are both required
+
+The active profile resolved the correct dynamic first-person weapon and raw
+right-controller translation was valid, but `UObjectHook.exists(component)` was
+false. TOW2 creates Steam weapon components after the initial UObject snapshot;
+the title-stability AddObject guard correctly refuses ambiguous candidates and
+can therefore miss the late mesh. `get_or_add_motion_controller_state()` still
+returned state, but `tick_attachments()` skipped the untracked component.
+
+Backend commit `217162d7` adds a TOW2-only explicit-enrollment path before
+state lookup. It accepts only a caller-requested component on the game thread
+after module-vtable, exact `FUObjectArray` identity and bounded class-hierarchy
+validation. It does not broaden AddObject scanning or affect other executables.
+Runtime logs changed from `exists=false` to:
+
+```text
+[TOW2] Enrolled explicit motion-controller component missed by guarded AddObject: ...
+```
+
+and weapon translation worked across swapped component instances. Full design,
+rejected alternatives and publication status:
+[TOW2 explicit component enrollment](../fixes/tow2-explicit-component-enrollment.md).
+
+The profile half is deliberately small:
+
+```text
+UObjectHook_EnabledAtStartup=true
+VR_MotionControlsInactivityTimer=9999.000000
+```
+
+A low-rate Lua callback follows the pawn-owned `FPVMesh.AttachChildren` chain,
+attaches only a newly observed `SkeletalMeshComponent`, preserves its parent,
+and applies right hand plus calibrated offsets with `permanent=true`. Detaching
+the parent and using non-permanent state were rejected because swapped weapons
+vanished or temporarily stopped tracking. The long inactivity timeout prevents
+a separate exact-30-second dropout: physical pose movement does not refresh
+UEVR's action-based controller-activity timestamp, while a trigger click does.
+
+Use the [stable 6DoF profile playbook](../playbooks/basic-6dof-setup.md) to
+separate pose, identity, state, enrollment, tick and lifetime gates.
+
+# Fixed UEVR framework menu and controller-ray mouse
+
+The validated profile configuration is:
+
+```ini
+UI_Framework_FollowView=false
+UI_Framework_MouseEmulation=true
+UI_Framework_Distance=1.750000
+UI_Framework_Size=2.000000
+VR_AimMethod=2
+```
+
+Stage-space framework placement fixed the OpenXR view-space/stage-space ray
+mismatch, but was not sufficient by itself. TOW2's right-controller gameplay
+aim continued changing view/rotation offset while pointing horizontally, which
+made the stage-space menu appear to move. The first Lua candidate called only
+`vr.set_aim_allowed(false)` while the framework was drawing; runtime telemetry
+proved it captured and released correctly, but OverlayComponent restored aim
+later in the same pre-ImGui frame.
+
+The successful profile-local script temporarily selects game aim (method `0`)
+for the entire framework session and also marks aim disallowed. It stores the
+actual prior method (`2` in TOW2), holds capture through the close frame,
+restores the prior method/allowed state, and calls `vr.save_config()` after
+restoration because the framework performs its own close-time save before Lua
+observes closure.
+
+Runtime validation completed three open/close cycles with horizontal, vertical
+and diagonal mouse movement, a stationary framework, no Lua exceptions, and
+matching telemetry:
+
+```text
+[tow2menu] captured framework aim; method=2 allowed=true
+[tow2menu] released framework aim; method=2 allowed=true
+```
+
+After exit, `config.txt` still contained `VR_AimMethod=2`. No backend, AFW,
+attachment, melee, button or game-menu behavior changed. The packaged scripts
+and required config fragment are in profile commit `69d3a7b0`. See
+[Fixed UEVR framework menu with a controller-ray mouse](../playbooks/framework-menu-controller-pointer.md)
+for the reusable configuration, Lua lifecycle and validation checklist.
+
 # Profile and visual requirements
 
 The reflected CVar path is unsafe. `userscriptex.dll` remains reversibly
@@ -127,9 +223,6 @@ ProcDump is denied. Do not infer AFW caused a title freeze unless
   unrelated artifact paths; immediately rolled back.
 - **Broad reflected scanner restoration** — unsafe memory warnings and title
   stalls.
-- **TOW2 controller-ray menu changes** — framework aim capture and trigger
-  pulse experiments did not establish a reliable fix and were rolled back.
-  Right-controller UEVR-menu selection remains an open validation item.
 - **Inventory/2D transition** — beta.4 adds relevant 2D guards, but this needs a
   deliberate repeated menu test before being called resolved.
 
@@ -138,6 +231,9 @@ ProcDump is denied. Do not infer AFW caused a title freeze unless
 - [PureDark AFW integration](../projects/puredark-afw-integration.md)
 - [Narrow port scope](../decisions/narrow-port-scope.md)
 - [Checkpointing and recovery](../playbooks/checkpoint-and-recovery.md)
+- [Stable 6DoF profile creation](../playbooks/basic-6dof-setup.md)
+- [Fixed framework menu controller pointer](../playbooks/framework-menu-controller-pointer.md)
+- [Explicit dynamic-component enrollment](../fixes/tow2-explicit-component-enrollment.md)
 
 # Citations
 

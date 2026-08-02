@@ -7,7 +7,7 @@ tags:
 - avatar
 - bones
 - avowed
-timestamp: '2026-07-20T00:00:00Z'
+timestamp: '2026-08-02T18:17:40+09:00'
 resource: src/mods/UObjectHook.cpp
 ---
 
@@ -47,7 +47,10 @@ Implemented and important, but the live Avowed profile still runs conservative
 fallback attach (`NATIVE_BONE_DRIVER_OWNS_WEAPONS=0`,
 `UObjectHook_LocalAvatarNativeBoneDriver=false`) — see
 [/games/avowed.md](../games/avowed.md). Treat native ownership as the long-term
-path, not the default.
+path, not the default. This is the game-aware resolver branch of the
+[stable 6DoF profile playbook](../playbooks/basic-6dof-setup.md): use it when
+component enrollment is healthy but `AcknowledgedPawn` is not the visible
+runtime avatar.
 
 # Citations
 

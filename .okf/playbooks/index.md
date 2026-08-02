@@ -2,7 +2,8 @@
 
 Repeatable methods for analysing new UEVR game problems.
 
-* [Basic 6DoF setup](basic-6dof-setup.md) — camera + weapon/hand attachment, native-UObjectHook-first then Lua; the motion-controller API, Lua sandbox limits, and the object-lifetime rules that keep a profile stable.
+* [Stable 6DoF profile creation](basic-6dof-setup.md) — native-first camera and weapon attachment, six-gate diagnosis, safe late-component enrollment, dynamic Lua/IK choices, lifetime rules, and cross-game patterns from TOW2, Avowed, SH2 and SHf.
+* [Fixed UEVR framework controller pointer](framework-menu-controller-pointer.md) — stage-space OpenXR menu configuration, controller-ray mouse emulation, and temporary game-aim capture for profiles that otherwise rotate the camera while pointing.
 * [Staged fix methodology](staged-fix-methodology.md) — the core loop: evidence → hypothesis → one narrow scoped change + telemetry → test → keep/revert.
 * [Log-signature triage](log-signature-triage.md) — symptom-to-fix table for `log.txt`; classify crash vs stall vs visual first.
 * [Crash dump analysis](crash-dump-analysis.md) — minidump parsing and symbolization; the faulting module is not the culprit.

@@ -9,7 +9,7 @@ tags:
 - attachment
 - crafting
 - crash
-timestamp: '2026-07-20T19:41:50+09:00'
+timestamp: '2026-08-02T18:17:40+09:00'
 resource: src/mods/UObjectHook.cpp
 ---
 
@@ -75,6 +75,7 @@ Candidate artifacts:
 
 - [Avowed working state](../games/avowed.md)
 - [TOW2 AddObject validation](tow2-addobject-candidate-guard.md)
+- [Stable 6DoF profile creation](../playbooks/basic-6dof-setup.md)
 - [Windows minidump analysis](../playbooks/crash-dump-analysis.md)
 
 # Citations

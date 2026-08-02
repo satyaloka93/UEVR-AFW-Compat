@@ -12,17 +12,18 @@ the fixes that produced them, and the playbooks for analysing new problems.
 ## Games
 
 * [Avowed](games/avowed.md) — working 6DoF/AFW state and crafting attachment-lifetime guard.
-* [The Outer Worlds 2](games/outer-worlds-2.md) — safe Native startup and beta.4 Previous Frame AFW zero-ghosting checkpoint.
+* [The Outer Worlds 2](games/outer-worlds-2.md) — safe Native startup, beta.4 Previous Frame AFW zero-ghosting checkpoint, committed Steam weapon enrollment and a packaged 6DoF overlay.
 * [Hogwarts Legacy](games/hogwarts-legacy.md) — transition-cooldown crash fix.
 * [Silent Hill f](games/silent-hill-f.md) — alpha.2 publishes the runtime-tested Native/UE5.7 injection candidate and profile; DLSS still needs a manual workaround and AFW remains limited.
-* [Silent Hill 2](games/silent-hill-2.md) — shipped unified-branch checkpoint forces Native before OpenXR swapchain creation; runtime AFW is promising only on the exact amended-runtime pairing.
+* [Silent Hill 2](games/silent-hill-2.md) — Native-first renderer checkpoint plus a separately preserved full plugin/IK first-person profile.
 
 ## Fixes
 
-* [Fix index](fixes/index.md) — 17 reusable engine/runtime fixes, including SH2 Native-first startup, SHf UE5.7 bootstrap, stale attachment, TOW2 title/UObject, and AFW beta.4 guards.
+* [Fix index](fixes/index.md) — 20 reusable engine/runtime/profile fixes, including SH2 Native-first startup, SHf bootstrap/profile hardening, stale attachments, TOW2 title/enrollment work, and AFW beta.4 guards.
 
 ## Playbooks
 
+* [Stable 6DoF profile creation](playbooks/basic-6dof-setup.md) — native attachment, dynamic enrollment, Lua/IK selection and cross-game lifetime validation.
 * [Staged fix methodology](playbooks/staged-fix-methodology.md) — the core loop.
 * [Log-signature triage](playbooks/log-signature-triage.md) — symptom → fix table.
 * [Crash dump analysis](playbooks/crash-dump-analysis.md) — minidump symbolization.

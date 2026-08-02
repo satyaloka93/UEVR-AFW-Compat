@@ -8,7 +8,7 @@ tags:
 - uesdk
 - crash
 - validation
-timestamp: '2026-07-20T18:54:40+09:00'
+timestamp: '2026-08-02T18:17:40+09:00'
 resource: src/mods/UObjectHook.cpp
 ---
 
@@ -61,9 +61,17 @@ validate identity and hierarchy against an authoritative owner before use;
 skipping incomplete hook bookkeeping is safer than admitting an unverified
 pointer.
 
+A later 6DoF investigation exposed the safe tradeoff: rejecting ambiguous
+AddObject calls can miss a valid late-created Steam weapon. Do not weaken this
+guard. Use the separate
+[explicit component-enrollment path](tow2-explicit-component-enrollment.md),
+which has caller intent and exact component identity.
+
 # Related
 
 - [TOW2 view-extension analyzer timing](tow2-view-extension-analyzer-threshold.md)
+- [TOW2 explicit component enrollment](tow2-explicit-component-enrollment.md)
+- [Stable 6DoF profile creation](../playbooks/basic-6dof-setup.md)
 - [In-process hang dumps](../playbooks/in-process-hang-dump.md)
 - [The Outer Worlds 2 state](../games/outer-worlds-2.md)
 

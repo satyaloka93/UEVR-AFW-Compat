@@ -12,7 +12,10 @@ tags:
 - native-stereo
 - afw
 - unification
-timestamp: '2026-07-27T09:30:00+09:00'
+- 6dof
+- ik
+- profile
+timestamp: '2026-08-02T18:17:40+09:00'
 ---
 
 # Identity
@@ -108,6 +111,35 @@ The Native Stereo Fix result is backend-specific. Earlier PureDark-derived SH2
 diagnostic builds required `VR_NativeStereoFix=true` to control shaking. Do not
 copy either value across backend hashes without a fresh-process check.
 
+# First-person and 6DoF profile layer
+
+SH2's renderer checkpoint and its first-person/6DoF profile are separate
+systems. A working full profile uses a coordinated game plugin plus Lua stack:
+
+- `plugins/sh2r.dll` for game-specific integration;
+- `camera.lua` for first-person camera ownership;
+- `main.lua` to initialize pawn, attachments, input, IK, hands and interaction;
+- `melee.lua` for weapon-hand combat behavior;
+- profile data for per-weapon attachment, hand, IK, UI and input calibration.
+
+That full profile intentionally has `UObjectHook_EnabledAtStartup=false`; it is
+not a saved native-UObjectHook attachment. A camera-only profile variant also
+exists and is useful as a minimal isolation control. Preserve these variants
+instead of merging files between them: the full profile's plugin, scripts and
+data form an atomic compatibility set.
+
+The reusable lesson differs from both current examples in the
+[stable 6DoF playbook](../playbooks/basic-6dof-setup.md): TOW2 needed a narrowly
+validated backend enrollment exception for one late mesh, while Avowed needed a
+runtime-avatar resolver. SH2 already justifies a full plugin/IK architecture
+because camera, hands, two-hand interaction and melee are coupled features.
+Do not enable UObjectHook or graft TOW2's enrollment path onto SH2 merely to
+make its configuration resemble another game.
+
+6DoF profile success does not relax renderer rules. Validate it in the known
+Native startup state first, and treat any AFW experiment as a separate
+fresh-process variable.
+
 # Lineage and prior evidence
 
 - The normal non-AFW baseline remained the historical safe fallback:
@@ -145,4 +177,5 @@ runtime hash above.
 - Project: [PureDark AFW integration](../projects/puredark-afw-integration.md)
 - Decision: [Narrow port scope](../decisions/narrow-port-scope.md)
 - Profile comparison: [SH2 AFW/Native profile conversion](../playbooks/afw-profile-conversion.md)
+- 6DoF method: [Stable 6DoF profile creation](../playbooks/basic-6dof-setup.md)
 - Contrast: [Silent Hill f](silent-hill-f.md)

@@ -8,7 +8,7 @@ tags:
 - openvr
 - openxr
 - psvr2
-timestamp: '2026-07-22T14:30:00+09:00'
+timestamp: '2026-08-02T18:17:40+09:00'
 ---
 
 # Status
@@ -66,6 +66,27 @@ The exact known-good AppData files are pinned by sha256 — see
 - `VR_AsynchronousScan=false` and `VR_RecreateTexturesOnReset=false` were part
   of the stability recipe on the OpenVR profile.
 
+# 6DoF architecture and reusable lessons
+
+Avowed is not a static "attach the acknowledged pawn's weapon" profile. Game
+updates separated the visible local avatar from the simple
+`AcknowledgedPawn` assumption, and inventory/crafting contexts can expose proxy
+actors or replace weapon components. The working shape therefore combines:
+
+1. backend local-avatar actor/mesh resolution with menu/proxy filtering;
+2. a game-specific dynamic Lua layer that follows loadout changes and clears
+   stale references;
+3. conservative fallback attachment (`NATIVE_BONE_DRIVER_OWNS_WEAPONS=0`) even
+   though an experimental native bone driver exists;
+4. an Avowed-scoped module-backed-vtable guard that removes stale attachment
+   state before virtual dispatch.
+
+This is the resolver/lifetime branch of the
+[stable 6DoF profile playbook](../playbooks/basic-6dof-setup.md). It contrasts
+with TOW2's late-component enrollment issue: Avowed can resolve the wrong
+*context* or retain a destroyed component, while TOW2 had the right live
+component but `UObjectHook.exists(component)=false`.
+
 # AFW variant
 
 An AFW/frame-warp-capable port of this working state exists on the PureDark
@@ -112,6 +133,13 @@ Validated backend: `54c5f9d3…`, performance confirmed back to normal.
   after some loadout/spell events.
 - Confirm the stale-attachment guard across repeated crafting, weapon
   replacement and loadout transitions.
+
+# Relationships
+
+- Playbook: [Stable 6DoF profile creation](../playbooks/basic-6dof-setup.md)
+- Avatar fix: [Local-avatar resolution and native bone driver](../fixes/local-avatar-native-bone-driver.md)
+- Lifetime fix: [Avowed stale attachment guard](../fixes/avowed-stale-attachment-guard.md)
+- Project: [PureDark AFW integration](../projects/puredark-afw-integration.md)
 
 # Citations
 

@@ -10,7 +10,7 @@ tags:
 - uobjecthook
 - attachments
 - crash
-timestamp: '2026-08-01T11:30:00+09:00'
+timestamp: '2026-08-02T18:32:21+09:00'
 ---
 
 # Symptom
@@ -64,8 +64,13 @@ callback feeding `shf` and `melee`, and the attachments grip callback returning
 `weapon.WeaponMesh` + IK mesh + `"hand_r"`. **That grip callback is what makes
 the hand close around the weapon** — it drives a per-weapon grip pose. It drops:
 `montage.init`, `uevrDev.init`, `hands.enableConfigurationTool`, and all
-`configui` panels (melee keeps its saved `data/shf_melee_config.json` values;
-only the in-game sliders are lost).
+`configui` panels.
+
+A later audit corrected an important consequence: the parked `main.lua` also
+contained the only `configui.create`/`onCreateOrUpdate` callbacks that loaded
+`data/shf_melee_config.json` and called `melee.setConfig`. The minimal profile
+therefore uses `melee.lua`'s hardcoded defaults, not the saved collision values;
+it lost both the sliders **and** the persisted-value wiring.
 
 # The settle gate
 
@@ -92,6 +97,9 @@ edit to `shf.lua`, `melee.lua`, and `uevr_utils.lua`'s `preEngineTick`/
 - Motion-controller offsets require real usertypes — `Vector3f.new(x,y,z)`;
   plain Lua tables raise `Invalid type for set_location_offset`. A `Vector3f`
   passed as a rotation is interpreted as euler degrees.
+- The published docs name the permanence setter `set_permanant`; **this backend
+  binds `set_permanent`**. Always confirm binding names in
+  `lua-api/lib/src/ScriptContext.cpp` rather than trusting the docs.
 
 # Rejected approaches
 
@@ -152,11 +160,22 @@ save/reload). The two that matter for future work are `reticule` and
 
 # Known gaps / open work
 
+- **Physical melee exists but is not safely finished.** `melee.lua` measures
+  right-controller speed, computes a weapon tip, enumerates
+  `NoceEnemyCharacter` objects and requires enemy-capsule overlap before
+  injecting native RB/light or RT/heavy input. The saved threshold/buffer JSON
+  is currently disconnected as described above. The repeated class enumeration
+  also reintroduces object-lifetime/performance risk into a profile rebuilt to
+  avoid tick-context searches. Prefer a melee-class-only velocity/travel/
+  hysteresis pulse that leaves collision, stamina, animation and damage to the
+  game's native attack path; calibrate it before enabling.
 - **Firearms are untested.** All 14 calibration entries and the grip wiring are
   melee weapons; SHf gun handling has not been exercised at all. Note that
   `libs/reticule` was among the libraries dropped with `main.lua` — aiming
   feedback may need it (or a standalone replacement) before guns are usable.
   Re-adding it means the same care: it must not reintroduce the crashy stack.
+  The current melee candidate also treats any `CurrentWeapon` as eligible, so
+  weapon classification is mandatory before firearms are acquired or tested.
 - **Frame pacing.** 45–89 fps swings; a fixed resolution scale instead of the
   game's dynamic scaler is the first thing to try.
 - `hands.lua` remains parked; hands work without it (IK arrives via `shf.lua`).

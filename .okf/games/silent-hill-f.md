@@ -13,7 +13,7 @@ tags:
 - vrs
 - dlss
 - afw
-timestamp: '2026-07-22T10:48:00+09:00'
+timestamp: '2026-08-02T19:01:32+09:00'
 ---
 
 # Identity and proven baseline
@@ -100,8 +100,23 @@ Active scripts in `SHf-Win64-Shipping/scripts/`:
 | `91_button_swap.lua` | X↔B dodge remap (extracted from `main.lua`) |
 | `92_core_init.lua` | pawn/attachments/input/ik init, IK-mesh wiring, weapon grip callback, reload hardening |
 | `shf.lua` | First person, camera, movement, state gating (lantern scan disabled; ViewTarget guards added) |
-| `melee.lua` | 6DoF swing detection |
+| `melee.lua` | Collision-gated physical swing candidate that injects native RB/light or RT/heavy attacks |
 | `examine.lua` | Examine-puzzle support |
+
+The 2026-08-02 audit found that parking `main.lua` also removed the only loader
+that applied `data/shf_melee_config.json` through `melee.setConfig`; the active
+script therefore uses hardcoded thresholds rather than its saved calibration.
+It also enumerates enemy objects repeatedly and does not exclude future
+firearms. Treat swing attacks as an unfinished candidate, not part of the
+validated minimal baseline. See
+[SHf profile rebuild](../fixes/shf-profile-rebuild-main-lua-removal.md).
+
+SHf is also the controller-ray framework-menu reference: with
+`UI_Framework_FollowView=false`, `UI_Framework_MouseEmulation=true` and its
+normal `VR_AimMethod=0`, the menu remains fixed while the right-controller ray
+moves the mouse cleanly in both axes. It needs no temporary aim workaround;
+controller-aim profiles can reproduce this behavior with the lifecycle in
+[Fixed UEVR framework menu with a controller-ray mouse](../playbooks/framework-menu-controller-pointer.md).
 
 Parked: `main.lua`, `hands.lua`. Disabled: `90_weapon_attach.lua.disabled` (a
 working native-UObjectHook attach alternative that cannot produce the
@@ -410,6 +425,13 @@ image quality are reproduced with the released hashes.
 - Re-test long Native gameplay, cinematics, save/load and graphics transitions
   before publishing; test actual Silent Hill 2 separately under
   `SHProto-Win64-Shipping.exe`.
+
+# Relationships
+
+- 6DoF method: [Stable 6DoF profile creation](../playbooks/basic-6dof-setup.md)
+- Profile fix: [Minimal SHf profile rebuild](../fixes/shf-profile-rebuild-main-lua-removal.md)
+- Renderer fix: [SHf OpenXR bootstrap](../fixes/shf-ue57-openxr-bootstrap.md)
+- Contrast: [Silent Hill 2](silent-hill-2.md)
 
 # Citations
 
