@@ -134,6 +134,8 @@ public:
     };
 
     std::shared_ptr<MotionControllerState> get_or_add_motion_controller_state(sdk::USceneComponent* component) {
+        ensure_tow2_motion_controller_component_tracked(component);
+
         {
             std::shared_lock _{m_mutex};
             if (auto it = m_motion_controller_attached_components.find(component); it != m_motion_controller_attached_components.end()) {
@@ -179,6 +181,7 @@ private:
 
     void hook();
     void add_new_object(sdk::UObjectBase* object);
+    void ensure_tow2_motion_controller_component_tracked(sdk::USceneComponent* component);
 
     void tick_attachments(
         Rotator<float>* view_rotation, const float world_to_meters, Vector3f* view_location, bool is_double

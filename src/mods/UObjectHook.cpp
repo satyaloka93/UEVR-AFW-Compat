@@ -540,6 +540,85 @@ void* UObjectHook::process_event_hook(sdk::UObject* obj, sdk::UFunction* func, v
     return result;
 }
 
+void UObjectHook::ensure_tow2_motion_controller_component_tracked(sdk::USceneComponent* component) {
+    if (!is_tow2_uobjecthook_game() || component == nullptr || exists(component)) {
+        return;
+    }
+
+    // This path is deliberately narrower than AddObject discovery. It runs only
+    // when a caller explicitly requests a motion-controller state for a scene
+    // component, and only on TOW2 Steam where AddObject's argument layout varies.
+    // Never enroll an unverified pointer: add_new_object walks the class hierarchy
+    // and the destructor hook relies on exact object identity for cleanup.
+    if (!GameThreadWorker::get().is_same_thread()) {
+        SPDLOG_WARNING_EVERY_N_SEC(2, "[TOW2] Refusing to enroll an explicit motion-controller component off the game thread");
+        return;
+    }
+
+    const auto object_array = sdk::FUObjectArray::get();
+    if (object_array == nullptr) {
+        return;
+    }
+
+    const auto index_offset = sdk::UObjectBase::get_internal_index_offset();
+    const auto is_array_backed_object = [&](sdk::UObjectBase* object) -> bool {
+        if (object == nullptr || IsBadReadPtr(object, sizeof(void*)) ||
+            IsBadReadPtr((void*)((uintptr_t)object + index_offset), sizeof(uint32_t)) ||
+            !has_module_backed_uobject_vtable(object)) {
+            return false;
+        }
+
+        const auto index = *(uint32_t*)((uintptr_t)object + index_offset);
+        if (index >= (uint32_t)object_array->get_object_count()) {
+            return false;
+        }
+
+        const auto item = object_array->get_object((int32_t)index);
+        return item != nullptr && item->object == object;
+    };
+
+    if (!is_array_backed_object(component)) {
+        SPDLOG_WARNING_EVERY_N_SEC(2, "[TOW2] Refusing to enroll a motion-controller component not backed by FUObjectArray");
+        return;
+    }
+
+    auto klass = component->get_class();
+    bool reached_hierarchy_root = false;
+
+    for (uint32_t depth = 0; klass != nullptr && depth < 128; ++depth) {
+        if (!is_array_backed_object((sdk::UObjectBase*)klass) || IsBadReadPtr(klass, 0x80)) {
+            return;
+        }
+
+        const auto next = klass->get_super_struct();
+        if (next == klass) {
+            return;
+        }
+
+        klass = (sdk::UClass*)next;
+        if (klass == nullptr) {
+            reached_hierarchy_root = true;
+            break;
+        }
+    }
+
+    if (!reached_hierarchy_root) {
+        return;
+    }
+
+    // Recheck exact membership immediately before enrollment. This runs on the
+    // game thread, so a valid component cannot be destroyed concurrently by UE.
+    if (!is_array_backed_object(component)) {
+        return;
+    }
+
+    add_new_object(component);
+
+    if (exists(component)) {
+        SPDLOG_INFO("[TOW2] Enrolled explicit motion-controller component missed by guarded AddObject: {:x}", (uintptr_t)component);
+    }
+}
+
 void UObjectHook::add_new_object(sdk::UObjectBase* object) {
     std::unique_lock _{m_mutex};
     std::unique_ptr<MetaObject> meta_object{};
