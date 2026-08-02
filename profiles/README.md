@@ -15,6 +15,18 @@ shipping executable.
 Included runtime logs, caches, dumps, saves, local paths, MCP plugins and backup
 files have intentionally been excluded.
 
+## TOW2 6DoF overlay
+
+`TheOuterWorlds2-Win64-Shipping-6DoF-overlay/` is deliberately an overlay rather
+than a complete copy of the third-party-derived alpha.3 TOW2 profile. Apply it
+to that known-good 3DoF base and merge `REQUIRED_CONFIG.txt` as instructed in
+its `PROFILE_NOTES.md`. It requires backend source commit `217162d7` or later;
+the alpha.3 release backend cannot enroll TOW2's late Steam weapon component.
+
+The overlay adds only the independently auditable dynamic attachment, optional
+native downstroke melee and framework-menu aim-capture scripts. It contains no
+address-derived UObjectHook state or diagnostics.
+
 The game-specific Lua/profile work derives from the Joey Hodge profile lineage
 and its bundled UEVR Lua utility libraries, with compatibility hardening recorded
 in the repository OKF. The backend and closed PDAFW runtime remain separate

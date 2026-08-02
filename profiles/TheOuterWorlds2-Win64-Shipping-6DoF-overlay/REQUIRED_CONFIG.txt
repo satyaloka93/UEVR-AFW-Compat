@@ -1,0 +1,14 @@
+# Merge these assignments into the active TOW2 config.txt.
+# This is a fragment, not a complete replacement config.
+
+UObjectHook_EnabledAtStartup=true
+VR_MotionControlsInactivityTimer=9999.000000
+VR_AimMethod=2
+
+UI_Framework_FollowView=false
+UI_Framework_MouseEmulation=true
+UI_Framework_Distance=1.750000
+UI_Framework_Size=2.000000
+
+# Preserve this known-good AFW option in every renderer mode.
+VR_AFW_FixMovingObjectBrightnessFlickering=false
