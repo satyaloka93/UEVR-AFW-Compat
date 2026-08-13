@@ -7,7 +7,7 @@ tags:
 - afw
 - porting
 - scope
-timestamp: '2026-07-27T09:30:00+09:00'
+timestamp: '2026-08-08T19:35:00+09:00'
 ---
 
 # Decision
@@ -40,14 +40,15 @@ detection; deploy to the isolated directory with recorded hashes
   for TOW2's safe Native-title startup. AFW → Native Stereo is confirmed unsafe
   (black right eye; PDAFW exposes no teardown API). Restart to leave AFW.
 - **Treat the UESDK revision as a target-set checkpoint, not a universal
-  upgrade.** Alpha.2's SHf/UE5.7 candidate used descendant `9034a857`, while
-  the shipped SH2/Avowed/TOW2 unified branch pins baseline `491f973a` because
-  the hardened revision correlated with severe SH2 regressions. Preserve the
-  executable-scoped AddObject/FUObjectArray validation lesson in backend code,
-  but revalidate every target—especially SHf—before changing the shared UESDK
-  pin. The reusable rule remains: validate RCX/RDX/R8/R9/stack candidates
-  against the FUObjectArray index plus readable class/vtable before
-  `add_new_object`, else skip ([render-target validation hardening](../fixes/render-target-validation-hardening.md)
+  upgrade.** Alpha.2's historical SHf candidate used `9034a857`; the current
+  public branch used custom cache baseline `d9ee8a57`. Alpha.4 advances that
+  branch through two narrow commits: upstream-equivalent FMalloc case handling
+  and a small validated SceneView offset-publication API, preserving all other
+  UESDK behavior. Revalidate every maintained game before changing the
+  shared checkpoint. Preserve executable-scoped AddObject/FUObjectArray
+  validation in backend code: validate RCX/RDX/R8/R9/stack candidates against
+  the FUObjectArray index plus readable class/vtable before `add_new_object`,
+  else skip ([render-target validation hardening](../fixes/render-target-validation-hardening.md)
   states the same validate-don't-guess principle).
 - **Gate AFW work to active AFW frames.** PureDark ran AFW descriptor/texture/
   command-list setup every frame even in Native Stereo; gating it recovered

@@ -1,58 +1,110 @@
 ---
-type: fix
-title: Local-avatar resolution and native bone driver (UObjectHook)
-description: Resolve the real visible player avatar actor/mesh instead of trusting AcknowledgedPawn, filter out menu/inventory proxy contexts, and optionally drive hand bones directly via a validated native bone driver. get_local_pawn falls back to the resolver.
+type: investigation
+title: Avowed local-avatar resolver and parked native bone-driver experiment
+description: Separate reusable avatar/proxy/lifetime diagnostics from an uncommitted native hand-bone writer that has no retained successful-apply evidence and is not present in the maintained AFW backend.
 tags:
 - uobjecthook
 - avatar
 - bones
 - avowed
-timestamp: '2026-08-02T18:17:40+09:00'
-resource: src/mods/UObjectHook.cpp
+- experimental
+timestamp: '2026-08-04T07:54:00+09:00'
 ---
 
-# Problem
+# Corrected status
 
-Modern UE5 titles (patched Avowed) decouple the visible local avatar from the
-simple `AcknowledgedPawn` assumption. UEVR would target the wrong actor (or a
-menu/inventory proxy), breaking hand/weapon attachment.
+This is **not an upstream or production fix**. The implementation was developed
+as uncommitted local work in a separate standard-UEVR tree and compiled into one
+local backend. It is absent from the maintained AFW backend. The known-good
+Avowed `_mine` profile does not enable `UObjectHook_LocalAvatarNativeBoneDriver`
+and retains:
 
-# Fix components
+```text
+USE_OLD_OBJ_HOOK_METHOD=1
+DIRECT_WEAPON_DRIVE=0
+NATIVE_BONE_DRIVER_OWNS_WEAPONS=0
+```
 
-In `src/mods/UObjectHook.{cpp,hpp}`:
+No retained runtime log contains the success signature
+`NativeBoneDriver applied(raw)`. Historical notes saying it "may" have driven
+hands are not proof. Do not describe the native writer as stable, active or the
+source of the known-good profile's 6DoF.
 
-- `resolve_local_avatar_actor()` / `resolve_local_avatar_mesh()` with caching,
-  heuristics for the primary skeletal mesh, and **menu/proxy-context filtering**
-  (gameplay avatar vs inventory preview).
-- Safer UObject handling: `is_probably_valid_uobject_ptr(...)`, validated scene
-  component transform access — reduces stale-pointer crashes during load
-  transitions.
-- **Native bone driver** (config `UObjectHook_LocalAvatarNativeBoneDriver`):
-  late-stage animation hook, transform-array layout validation, raw
-  component-space writes to resolved left/right hand bones, socket-name
-  fallback, and runtime gating/blocking when layout validation fails.
-  Architecture lesson: a global ProcessEvent hook for this was abandoned —
-  a startup-only targeted native hook plus game-thread apply is the survivable
-  design.
-- `PluginLoader::get_local_pawn` falls back to
-  `UObjectHook::resolve_local_avatar_actor(index)` when `AcknowledgedPawn`
-  is missing — plugins and Lua scripts get the right actor for free.
-- Lua gained `get_grip_pose` / `get_aim_pose` / `get_grip_transform` /
-  `get_aim_transform` (`lua-api/lib/src/ScriptContext.cpp`) for pose-anchored
-  attach logic.
+# Reusable part
 
-# Current stance
+The experiment contains useful diagnostic architecture:
 
-Implemented and important, but the live Avowed profile still runs conservative
-fallback attach (`NATIVE_BONE_DRIVER_OWNS_WEAPONS=0`,
-`UObjectHook_LocalAvatarNativeBoneDriver=false`) — see
-[/games/avowed.md](../games/avowed.md). Treat native ownership as the long-term
-path, not the default. This is the game-aware resolver branch of the
-[stable 6DoF profile playbook](../playbooks/basic-6dof-setup.md): use it when
-component enrollment is healthy but `AcknowledgedPawn` is not the visible
-runtime avatar.
+- identify the actual gameplay avatar rather than trusting
+  `AcknowledgedPawn` unconditionally;
+- distinguish gameplay actors from inventory/menu preview proxies;
+- track actor, mesh and component addresses across loading and loadout changes;
+- validate UObject and scene-component pointers before virtual dispatch;
+- clear stale caches and delay reacquisition after context changes.
+
+These ideas can be implemented independently of direct bone writes. In
+particular, an avatar resolver may eventually be extracted as a small,
+reviewable feature after raw-pose and component identity evidence requires it.
+It must not be assumed to exist in the AFW backend today.
+
+# Parked experimental part
+
+The uncommitted driver attempted:
+
+- startup-only late animation-hook installation;
+- transform-array layout validation;
+- left/right hand-bone or socket resolution;
+- raw component-space hand transform writes;
+- runtime blocking when validation failed.
+
+This route was parked because ordinary successful hand application was never
+retained as proven evidence. Similar diagnostics in TOW2 found a transform
+array but failed to resolve hand-bone indices. Native C++ weapon ownership was
+also rejected separately; it must not be re-enabled as part of hand testing.
+
+# Current Avowed evidence and decision path
+
+Completed read-only gates:
+
+- raw HMD/left/right poses contain independent positional translation;
+- API local pawn and `AcknowledgedPawn` identify the same gameplay actor;
+- `FirstPersonMesh` is `FirstPersonSkelMesh` and `Mesh` is `CharacterMesh0`;
+- both meshes, the pawn and controller report `UObjectHook.exists=false`;
+- bounded `FirstPersonMesh.AttachChildren` inspection found weapon utility rigs,
+  bounds objects and three tracked generated poseable meshes, but no separate
+  ordinary left/right hand scene components with existing attachment state.
+
+The first `_mine`-derived Native/2D run was black except for the framework
+although scene-capture creation completed. Its raw-pose evidence remains valid,
+but it is rejected as a visual baseline. A second pass changed only 2D screen
+distance/size to the previously visible safe values and remained black. The
+probe and diagnostic branch are parked, and the active profile has been
+restored byte-for-byte from the untouched `_mine` anchor.
+
+If this investigation is ever resumed:
+
+1. Confirm whether any stable property chain exposes separate existing
+   arm/glove components; do not attach the entire first-person skeletal root to
+   one controller.
+2. If a suitable scene component exists, resolve its enrollment failure before
+   changing hand behavior. State creation alone cannot bypass `exists=false`.
+3. If hands exist only as bones in `FirstPersonSkelMesh`, reconsider only a
+   **small, Avowed-only, default-off** bone/IK experiment. Do not port the former
+   driver wholesale and do not give it weapon ownership.
+4. Keep `_mine` weapon/loadout ownership and melee/block behavior unchanged
+   until ordinary persistent hands survive loading, inventory, crafting,
+   swaps and death/load.
+
+This is one branch of the [stable 6DoF profile playbook](../playbooks/basic-6dof-setup.md),
+not a prerequisite for TOW2, SHf or SH2.
+
+# Relationships
+
+- Game state: [Avowed](../games/avowed.md)
+- Lifetime protection: [Avowed stale attachment guard](avowed-stale-attachment-guard.md)
+- Diagnostic order: [Stable 6DoF profiles](../playbooks/basic-6dof-setup.md)
 
 # Citations
 
-- `AVOWED_UEVR_UPDATE.md` §1.6–1.7, §1.15–1.16
-- `AVOWED_DEBUG_LOG.md` — native bone-driver pivot sections
+- `AVOWED_UEVR_UPDATE.md` — implementation history and conservative/default-off status
+- `AVOWED_CHECKPOINT_STATE.md` — known-good dynamic Lua ownership settings
+- `AGENT_PROJECT_MESSAGES.md` — failed/parked native diagnostics and later TOW2 bone-resolution failure

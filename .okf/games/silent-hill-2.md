@@ -1,7 +1,7 @@
 ---
 type: game-profile
-title: Silent Hill 2 (SHProto) — Native-first unified AFW checkpoint
-description: SH2 now starts reliably on the shipped unified branch by pinning baseline UESDK 491f973a and forcing Native before OpenXR swapchain initialization; runtime AFW switching is promising on the exact amended-runtime checkpoint but remains narrower than a general SH2 AFW safety claim.
+title: Silent Hill 2 (SHProto) — forced-Native compatibility checkpoint
+description: 'SH2 remains Native-only: force Native before OpenXR swapchain initialization, keep Native Stereo Fix on for the current profile, and preserve prior AFW device-hung and NVIDIA bugcheck evidence.'
 tags:
 - silent-hill-2
 - sh2
@@ -15,7 +15,7 @@ tags:
 - 6dof
 - ik
 - profile
-timestamp: '2026-08-02T18:17:40+09:00'
+timestamp: '2026-08-08T19:35:00+09:00'
 ---
 
 # Identity
@@ -28,17 +28,21 @@ timestamp: '2026-08-02T18:17:40+09:00'
 
 # Current working checkpoint
 
-The shipped source branch is `origin/afw-beta4-game-compat` at `a3d3128c`:
+The forced-Native correction originated in the shipped line ending at
+`a3d3128c` and remains in the current public descendant at `70f6e508`:
 
-1. `e0f7c5c7` pins UESDK `491f973a` and restores baseline
-   `FUObjectItem::object` access;
+1. `e0f7c5c7` established the historical UESDK `491f973a` checkpoint and
+   restored baseline `FUObjectItem::object` access;
 2. `75c172c5` forces SH2 to Native before OpenXR swapchain initialization;
-3. `a3d3128c` records the initial OKF state.
+3. later public commits preserve that executable-scoped startup force while
+   adding other games' compatibility work.
 
 The [forced Native cold-start fix](../fixes/sh2-shproto-afw-cold-start-native-force.md)
-was confirmed across repeated launches. A runtime Native-to-AFW switch was also
-reported working on the deployed checkpoint. The saved profile used Combined
-mode (`VR_AFW_FramewarpMode=3`), but the code forces Native for each new process.
+was confirmed across repeated launches. Although one historical
+Native-to-AFW switch completed on the exact amended-runtime checkpoint, later
+AFW runs produced device hangs and an NVIDIA bugcheck. Current policy is
+Native-only; do not treat the saved frame-warp mode as permission to activate
+AFW.
 
 ## Deployed artifacts
 
@@ -83,33 +87,28 @@ UESDK pin is *not* the cause of the concurrent
 
 1. Start a fresh SH2 process and inject once the game can render a real 3D
    frame. Early stereo-device discovery may fail twice and then recover.
-2. Leave startup ownership to the code force. `config.txt` may still say
-   `VR_RenderingMethod=3`; the backend changes the in-memory value to Native
-   before swapchain creation.
+2. Use `VR_RenderingMethod=0` and keep
+   `VR_NativeStereoFix=true` for the current known-good profile. The backend's
+   startup force remains a safety net before swapchain creation.
 3. Confirm the log contains:
 
    ```text
    [SH2] Forcing Native Stereo before swapchain init
    ```
 
-4. Validate Native before switching to AFW.
-5. If testing AFW, retain `VR_AFW_FixMovingObjectBrightnessFlickering=false`.
-6. Restart the game to leave AFW. Do not switch AFW-to-Native in-process because
-   PDAFW exposes no teardown API.
+4. Remain in Native for the entire process. Do not activate AFW unless a new,
+   explicit AFW investigation is requested.
 
-# Validated profile details for this checkpoint
+# Validated profile details for the current policy
 
-- Cold-start method: forced Native (`RenderingMethod=0` in memory).
-- Saved frame-warp mode: Combined (`VR_AFW_FramewarpMode=3`).
-- `VR_GhostingFix=true` and bootstrap enabled in the tested saved profile.
-- `VR_AFW_FixMovingObjectBrightnessFlickering=false`.
-- `VR_NativeStereoFix=false` on this unified build; enabling it produced a
-  black right eye in this checkpoint.
-- Warning-level logging remains recommended for performance comparisons.
+- Cold-start and runtime method: Native (`VR_RenderingMethod=0`).
+- `VR_NativeStereoFix=true` for the current known-good profile.
+- `VR_AFW_FixMovingObjectBrightnessFlickering=false` remains the global safety
+  setting even though AFW is not activated.
+- Warning-level logging remains recommended for regression comparisons.
 
-The Native Stereo Fix result is backend-specific. Earlier PureDark-derived SH2
-diagnostic builds required `VR_NativeStereoFix=true` to control shaking. Do not
-copy either value across backend hashes without a fresh-process check.
+Native Stereo Fix behavior is backend/profile-specific. Preserve this exact
+SH2 pairing; do not copy its value to SHf or TOW2.
 
 # First-person and 6DoF profile layer
 
@@ -136,9 +135,8 @@ because camera, hands, two-hand interaction and melee are coupled features.
 Do not enable UObjectHook or graft TOW2's enrollment path onto SH2 merely to
 make its configuration resemble another game.
 
-6DoF profile success does not relax renderer rules. Validate it in the known
-Native startup state first, and treat any AFW experiment as a separate
-fresh-process variable.
+6DoF profile success does not relax renderer rules. Validate it only in the
+known Native state; AFW remains out of scope for the maintained SH2 profile.
 
 # Lineage and prior evidence
 
@@ -155,21 +153,19 @@ fresh-process variable.
   and are not erased by the new checkpoint.
 
 Do not restore the old conclusion that “PureDark plain beta.4 works Native or
-AFW” as a general statement. The newly working path is the shipped unified
-source plus baseline UESDK, forced Native cold-start, and the exact amended
-runtime hash above.
+AFW” as a general statement. The maintained path is forced Native startup plus
+the current SH2 profile's Native Stereo Fix.
 
 # Current limitations
 
-- AFW cold-start is deliberately unsupported; the fix avoids it rather than
-  repairing it.
-- The latest startup log contained one recoverable
+- SH2 AFW remains unsafe due `DXGI_ERROR_DEVICE_HUNG` and the prior NVIDIA
+  `0x139` bugcheck; no AFW candidate is approved.
+- One historical startup log contained a recoverable
   `XR_ERROR_TIME_INVALID` / `XR_FRAME_DISCARDED` pair.
-- Runtime AFW was observed working, but sustained gameplay, transitions,
-  moving-object quality and NVIDIA driver safety still need repeated testing.
-- TOW2 should be re-confirmed after the UESDK pin change.
-- SHf is not covered by this unification claim and must be revalidated because
-  its alpha.2 UE5.7 candidate used UESDK `9034a857`.
+- The current combined f37 plus SHf-guard backend still requires a Native-only
+  SH2 regression pass before publication.
+- SHf and TOW2 have separate profile/runtime rules; do not generalize SH2's
+  Native Stereo Fix or Native-only policy to them.
 
 # Relationships
 

@@ -7,7 +7,7 @@ tags:
 - profile
 - config
 - uevr-utils
-timestamp: '2026-07-27T09:30:00+09:00'
+timestamp: '2026-08-08T19:35:00+09:00'
 ---
 
 # Reference example and scope
@@ -23,17 +23,20 @@ port settings only after per-game validation.
 
 # 1. SH2 config pairing
 
-The validated unified-branch SH2 profile may remain saved as:
+The historical unified-branch profile was saved as AFW with Native Stereo Fix
+off, while commit `75c172c5` forced Native only in memory before OpenXR
+swapchain creation. That mismatch is useful diagnostic history but is no longer
+the maintained pairing.
+
+The current known-good SH2 profile saves the actual runtime policy:
 
 ```text
-VR_RenderingMethod=3
-VR_NativeStereoFix=false
+VR_RenderingMethod=0
+VR_NativeStereoFix=true
 ```
 
-At branch tip `a3d3128c`, the saved AFW value is **not** the cold-start method:
-commit `75c172c5` forces SHProto to Native in memory before OpenXR swapchain
-creation. After Native stabilizes, the user may switch to the saved AFW mode.
-This distinction is essential when comparing the profile with startup logs.
+The code force remains a safety net. SH2 stays Native for the entire process;
+prior AFW device hangs and the NVIDIA bugcheck block runtime AFW.
 
 Supporting changes seen in the SH2 conversion (apply per taste, not required):
 
@@ -44,11 +47,11 @@ Supporting changes seen in the SH2 conversion (apply per taste, not required):
 - `LuaLoader_LogToDisk=true` while the profile is under development
 - Debug/recenter hotkeys unbound (`-1`) once stable
 
-**Directional mode-switch rule:** AFW → Native live switching is unsafe.
-SH2 now starts Native by code and has a promising runtime Native → AFW result
-on the exact shipped checkpoint. Follow the [SH2 game concept](../games/silent-hill-2.md)
-rather than interpreting the saved `VR_RenderingMethod=3` as AFW cold-start;
-follow the [narrow-port decision](../decisions/narrow-port-scope.md) for other games.
+**Current mode rule:** do not switch SH2 into AFW. The generic AFW → Native
+teardown restriction still applies to other approved AFW profiles, but SH2's
+stronger Native-only rule wins. Follow the
+[SH2 game concept](../games/silent-hill-2.md) and the
+[narrow-port decision](../decisions/narrow-port-scope.md).
 
 # 2. Independent script-stack migration
 

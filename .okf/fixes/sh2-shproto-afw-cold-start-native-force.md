@@ -1,7 +1,7 @@
 ---
 type: fix
 title: Silent Hill 2 (SHProto) — unified backend with forced Native cold-start
-description: The shipped AFW-Compat branch restores SH2 by pinning baseline UESDK 491f973a and forcing Native before OpenXR swapchain initialization; a runtime Native-to-AFW switch has been observed on the matching deployed checkpoint, but broader AFW safety remains under validation.
+description: Force SH2 to Native before OpenXR swapchain initialization. The historical unified checkpoint established the startup fix; current policy remains Native-only because later AFW runs produced device hangs and an NVIDIA bugcheck.
 tags:
 - silent-hill-2
 - sh2
@@ -11,16 +11,18 @@ tags:
 - uesdk
 - swapchain
 - unification
-timestamp: '2026-07-27T09:30:00+09:00'
+timestamp: '2026-08-08T19:35:00+09:00'
 ---
 
 # Scope
 
 Maintain one `afw-beta4-game-compat` source branch for SH2
-(`SHProto-Win64-Shipping.exe`), Avowed and TOW2. The shipped branch tip is
-`a3d3128c`; its executable changes are:
+(`SHProto-Win64-Shipping.exe`), Avowed and TOW2. The startup correction
+originated in the shipped line ending at `a3d3128c` and remains in the current
+public descendant `70f6e508`:
 
-- `e0f7c5c7` — pin UESDK `491f973a` and restore baseline `FUObjectItem::object` callers;
+- `e0f7c5c7` — historical UESDK `491f973a` checkpoint and baseline
+  `FUObjectItem::object` callers;
 - `75c172c5` — force SH2 to Native immediately before OpenXR swapchain initialization.
 
 See the [SH2 game state](../games/silent-hill-2.md), the
@@ -70,9 +72,10 @@ Commit `75c172c5` detects `shproto-win64-shipping.exe` in
 ```
 
 The value is intentionally forced in memory rather than rewriting the profile.
-A profile may therefore remain saved as `VR_RenderingMethod=3`, while every new
-process still creates Native swapchains first. Runtime Native-to-AFW switching
-remains available. Restart the game to leave AFW; PDAFW has no teardown API.
+A stale profile can therefore still say `VR_RenderingMethod=3`, while every new
+process creates Native swapchains first. The maintained profile should now save
+`VR_RenderingMethod=0` explicitly. Remain Native for the entire process; later
+AFW evidence makes runtime switching unsupported.
 
 # Validation checkpoint
 
@@ -89,12 +92,13 @@ launches and a runtime AFW switch:
 The deployed PDAFW hash is the amended beta.4-derived runtime, not the official
 beta.4 hash `76bbc4d7...`.
 
-The saved profile at validation time used Combined mode (`VR_AFW_FramewarpMode=3`),
-Ghosting Fix enabled, moving-object brightness correction disabled, and
-`VR_NativeStereoFix=false`. The startup log showed the force before swapchain
-bring-up and one recoverable `XR_ERROR_TIME_INVALID` / `XR_FRAME_DISCARDED`
-pair. Sustained AFW gameplay and driver safety remain required before treating
-SH2 AFW as generally safe.
+The saved profile at that historical validation time used Combined mode
+(`VR_AFW_FramewarpMode=3`), Ghosting Fix enabled, moving-object brightness
+correction disabled, and `VR_NativeStereoFix=false`. The startup log showed the
+force before swapchain bring-up and one recoverable `XR_ERROR_TIME_INVALID` /
+`XR_FRAME_DISCARDED` pair. That profile pairing is superseded: the current
+known-good SH2 profile uses Native with `VR_NativeStereoFix=true` and does not
+activate AFW.
 
 # Superseded attempts
 
@@ -106,17 +110,15 @@ retain their hashes only as diagnostic history, not as part of the fix.
 
 # Safety interpretation
 
-- This checkpoint supersedes the old claim that SH2 must always use the normal
-  non-AFW backend, but only for the exact shipped source/runtime pairing above.
-- It does **not** erase earlier official beta.4/hotfix GPU hangs or the NVIDIA
-  bugcheck produced by other backend/PDAFW combinations.
-- Do not infer that official beta.4 AFW cold-start is repaired. The fix avoids
-  AFW cold-start and permits a later runtime switch.
-- Native-to-AFW is the tested direction; AFW-to-Native still requires restart.
+- The startup force remains valid and keeps swapchain creation Native.
+- It does **not** erase official beta.4/hotfix GPU hangs or the NVIDIA bugcheck.
+- Current policy is SH2 Native-only with Native Stereo Fix on.
+- Do not infer that AFW cold-start or runtime AFW is repaired; no AFW candidate
+  is approved.
 
 # Citations
 
-- Shipped branch: `origin/afw-beta4-game-compat` at `a3d3128c`.
+- Originating shipped checkpoint: `a3d3128c`; current public descendant: `70f6e508`.
 - Executable commits: `e0f7c5c7`, `75c172c5`.
 - Historical divergence commits: `c1528b7c`, `276300db`.
 - Deployed log signature: `[SH2] Forcing Native Stereo before swapchain init`.

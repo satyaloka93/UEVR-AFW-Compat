@@ -1,7 +1,7 @@
 ---
 type: project
 title: PureDark AFW integration — ongoing effort state
-description: Live state of the narrow AFW compatibility fork; the shipped unified source now covers SH2, Avowed and TOW2 with a baseline UESDK pin and SH2 Native-first startup, while SHf remains tied to the separate alpha.2/UE5.7 checkpoint pending revalidation.
+description: Live state of the narrow AFW compatibility fork; alpha.4 publishes TOW2 explicit enrollment and FMalloc case handling, the SHf fail-closed SceneView guard, Lua shutdown lifetime correction, and maintained SHf first-person/6DoF profile as an experimental prerelease.
 tags:
 - afw
 - puredark
@@ -10,7 +10,7 @@ tags:
 - shf
 - sh2
 - ongoing
-timestamp: '2026-07-27T09:30:00+09:00'
+timestamp: '2026-08-12T13:33:00+09:00'
 resource: .
 ---
 
@@ -24,17 +24,19 @@ standing rules are in [narrow port scope](../decisions/narrow-port-scope.md).
 
 - Public branch: `afw-beta4-game-compat`, based on PureDark
   `AFW` commit `e260ffe8` (`UEVR_AFW_v1.0-beta.4` tag).
-- Current branch tip `a3d3128c` pins baseline UESDK `491f973a` for the shipped
-  SH2/Avowed/TOW2 unified scope. Historical alpha.1/alpha.2 releases remain
-  built against `9034a857`; SHf must be revalidated before this branch replaces
-  alpha.2 for that UE5.7 title.
+- Public tip `70f6e508` included TOW2 explicit motion-controller enrollment,
+  the 6DoF overlay package and cross-linked playbooks.
+- Alpha.4 adds backend commit `b64dacc8`, the maintained SHf profile commit
+  `fc7dbc52`, and the accompanying canonical documentation/release commit.
+- Its UESDK checkpoint is `7610b016`: custom cache baseline `d9ee8a57` plus
+  FMalloc case handling (`62471af`) and the small validated SceneView
+  offset-publication API (`7610b01`).
 - Joey integration is preserved at `021d45b7` plus private stashes/evidence;
   only audited corrections are intended for publication with attribution.
 - Experimental deployment remains isolated at `<deploy-dir>`; the primary UEVR
   installation remains untouched.
-- The Avowed/TOW2 integration and SHf candidate source are published
-  experimentally on this branch. Open validation remains explicit; publication
-  does not promote them to stable status.
+- Open validation remains explicit. Neither public source nor successful local
+  testing promotes a candidate to stable status.
 
 # Runtime and build dependency model
 
@@ -45,8 +47,12 @@ standing rules are in [narrow port scope](../decisions/narrow-port-scope.md).
   supplies no-op link-time exports. Real frame warping requires the official
   matching PureDark `PDAFWPlugin.dll`, obtained separately.
 - The beta.4 runtime/header/backend callers form one compatibility checkpoint.
-  The validated runtime SHA-256 is
+  Alpha.2 used official beta.4 runtime hash
   `76bbc4d7a5370ba0d6a1a50de6b81d45223e42b764d2d7c79f0c6c48a59f6b64`.
+  The current maintained experimental checkpoint uses the amended beta.4
+  runtime hash
+  `b129118ba239e0c9fd7b0c803dab0199242af7142c7b9541e656e2f3eaca8ff9`; do
+  not interchange these runtimes without matching caller validation.
 - See repository file `docs/PDAFW_RUNTIME.md` before building or packaging;
   never mistake the generated dummy DLL for the real runtime.
 
@@ -124,6 +130,11 @@ Additional PureDark-branch corrections:
 3. [Per-call FUObjectArray-backed AddObject validation](../fixes/tow2-addobject-candidate-guard.md), derived from a running-process dump.
 4. One-shot [in-process title hang dump](../playbooks/in-process-hang-dump.md)
    temporarily retained because analyzer completion is still timing-sensitive.
+5. Published [explicit late-component enrollment](../fixes/tow2-explicit-component-enrollment.md)
+   for true Steam weapon 6DoF without broad UObject scanning.
+6. Unpublished one-file [FMalloc case-variant correction](../fixes/tow2-fmalloc-memory-leak.md),
+   which resolves uppercase `Binned2` and stopped the observed unbounded-memory
+   symptom in a sustained AFW run.
 
 # 2026-07-20 beta.4 result
 
@@ -171,29 +182,37 @@ Native-to-AFW switch were reported working on backend
 with amended beta.4-derived PDAFW runtime
 `b129118ba239e0c9fd7b0c803dab0199242af7142c7b9541e656e2f3eaca8ff9`.
 
-This is not a general clearance of prior SH2 AFW failures. AFW cold-start is
-still unsupported, AFW-to-Native still requires restart, and earlier official
-beta.4/hotfix GPU hangs and the NVIDIA bugcheck remain valid for their exact
-checkpoints. See [Silent Hill 2](../games/silent-hill-2.md) and the
+This is not a general clearance of prior SH2 AFW failures. Current maintained
+policy is SH2 Native-only with Native Stereo Fix on: later AFW attempts produced
+`DXGI_ERROR_DEVICE_HUNG` and an NVIDIA `0x139` bugcheck. Do not test or publish
+an SH2 AFW candidate unless explicitly requested. See
+[Silent Hill 2](../games/silent-hill-2.md) and the
 [Native cold-start fix](../fixes/sh2-shproto-afw-cold-start-native-force.md).
 
-# SHf local compatibility candidate
+# SHf compatibility state
 
-Published source commit `cc0c43f9` ports the Joey-derived UE5.7/OpenXR
+Published source commit `cc0c43f9` ports the historical Joey-lineage OpenXR
 bootstrap into the beta.4 destination. Stable UI reuse, bounded setup retries,
 owned scene/scene-capture copies, right-eye composition fallback, direct RHI
 pose enqueue and rehook suppression produced reliable injection and both-eye
 Native Stereo without runaway VRAM.
 
-Manual Native → Previous Frame AFW is functional, but it saves only about 3–4
-ms after DLSS is correctly reapplied, remains CPU-limited near 40–41 application
-FPS, and distorts hands/weapons. Native plus a manual game-owned DLSS quality
-reapply is therefore recommended. AFW startup, AFW → Native and automatic DLSS
-settings reflection are rejected. The exact profile, measurements, hashes and
-limitations are in [Silent Hill f](../games/silent-hill-f.md).
+Alpha.2 packages that earlier Native-profile era. Its release archive remains
+historical. The authoritative source tree now maintains a sanitized snapshot of
+the rebuilt first-person/6DoF profile under `profiles/SHf-Win64-Shipping/`.
+Install it cleanly rather than merging old scripts. The current profile starts
+directly in Previous Frame AFW with Native Stereo Fix/Same Pass off, Ghosting
+Fix/Bootstrap on and moving-object brightness correction off. Restart to change
+modes; PDAFW has no teardown API.
 
-Alpha.2 includes the candidate backend and clean profile. Alpha.1 remains an
-immutable historical release whose SHf unsupported warning is still correct.
+The alpha.4 backend combines the TOW2 f37-equivalent FMalloc correction with an
+SHf-only validated `FSceneViewFamily` layout/fail-closed constructor guard and
+the Lua shutdown lifetime correction. It completed one approximately 35-minute
+stable SHf run after PSVR2 runtime recovery; a later gameplay pass exposed only
+the now-corrected exit-time Lua destructor call. Neither decisive SceneView
+guard signature appeared. Repeated cold starts and broader Avowed/TOW2/SH2
+regression remain required. Exact profile state, evidence and limitations are
+in [Silent Hill f](../games/silent-hill-f.md).
 
 # Standing findings
 
@@ -209,25 +228,23 @@ immutable historical release whose SHf unsupported warning is still correct.
 
 # Open validation
 
-1. Repeat several clean TOW2 Native-title launches; capture a fresh in-process
-   dump if the analyzer race returns.
-2. Test inventory and any profile-driven 2D-screen transition repeatedly.
-3. Resolve right-controller UEVR-menu selection without dragging the framework
-   window or rotating the game menu/camera.
-4. Confirm saves, shadows, both eyes, weapon scripts and sustained gameplay.
-5. Repeat Avowed crafting, weapon replacement and loadout transitions; confirm
-   the stale-attachment guard protects the original dump path without breaking
-   weapon recovery.
-6. Reproduce the alpha.2 SHf backend/profile hashes across sustained Native
-   gameplay and transitions; separately determine whether UESDK `491f973a`
-   preserves SHf's UE5.7 bootstrap before claiming the unified branch covers it.
-7. Repeat SH2 Native launches, sustained Combined/Previous AFW gameplay and
-   transitions on the exact `eec89cd4...` / `b129118b...` checkpoint; preserve
-   earlier GPU-hang and bugcheck cautions until that evidence exists.
-8. Re-confirm TOW2 after the UESDK pin change and regression-test PSVR2 input.
-9. Remove the temporary hang-dump watchdog after launch reliability is proven.
-10. Keep releases marked prerelease until these checks pass; retain temporary
-   diagnostics only while their corresponding race remains unresolved.
+1. Repeat fresh SHf cold-Previous-Frame-AFW starts until the validated-layout or
+   transient fail-closed SceneView signature is captured without the old
+   `0x8/0x10` crash.
+2. Exercise SHf loading, menus, weapon swaps, gameplay and clean exit across
+   several fresh processes.
+3. Regression-test the combined f37 plus SceneView candidate in Avowed, TOW2
+   and SH2. Keep SH2 Native-only.
+4. Optionally repeat TOW2 with live private-byte telemetry; do not invent a
+   quantitative curve from the earlier timed-out monitor.
+5. Continue TOW2 inventory/2D transitions, enrollment, swaps, death/load,
+   native melee and controller-menu validation while preserving `_3dof`.
+6. Repeat Avowed crafting, weapon replacement and loadout transitions against
+   the untouched `_mine` behavior; keep hand/bone work parked.
+7. Remove temporary diagnostics only after their corresponding race is proven
+   resolved.
+8. Keep alpha.4 marked prerelease until these checks pass; publication was
+   explicitly approved, but stable promotion was not.
 
 # Related
 

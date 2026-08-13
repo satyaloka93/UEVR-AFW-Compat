@@ -13,7 +13,7 @@ tags:
 - motion-controllers
 - menu
 - mouse-emulation
-timestamp: '2026-08-02T19:12:00+09:00'
+timestamp: '2026-08-08T19:35:00+09:00'
 ---
 
 # Status
@@ -31,6 +31,15 @@ repeated clean launches establish that the title analyzer is reliable. The
 6DoF source is committed as `217162d7` and its overlay as `69d3a7b0`;
 a matching new release binary remains held until longer TOW2 and cross-game
 regression tests complete.
+
+**Memory-leak correction:** an unpatched run reached approximately 30 GB system
+RAM in under ten minutes while logging `[FMalloc::get] Failed to find GMalloc`.
+TOW2 contains the case-sensitive `Binned2` marker that the maintained UESDK
+branch did not scan. The narrow Praydog UESDK `f37f61c` candidate resolved
+`Binned2` plus Malloc/Realloc/Free, then ran AFW for approximately 35 minutes
+without observed continuing memory growth or OOM/GPU/device errors. Alpha.4
+publishes this correction as an experimental prerelease; broader regression is
+still required before stable promotion. See [TOW2 FMalloc discovery and memory growth](../fixes/tow2-fmalloc-memory-leak.md).
 
 # Safe startup state
 
@@ -225,6 +234,9 @@ ProcDump is denied. Do not infer AFW caused a title freeze unless
   stalls.
 - **Inventory/2D transition** — beta.4 adds relevant 2D guards, but this needs a
   deliberate repeated menu test before being called resolved.
+- **FMalloc stable promotion** — alpha.4 publishes the narrow correction as a
+  prerelease, but it still needs broader cross-game regression before stable
+  promotion.
 
 # Related
 
@@ -234,6 +246,7 @@ ProcDump is denied. Do not infer AFW caused a title freeze unless
 - [Stable 6DoF profile creation](../playbooks/basic-6dof-setup.md)
 - [Fixed framework menu controller pointer](../playbooks/framework-menu-controller-pointer.md)
 - [Explicit dynamic-component enrollment](../fixes/tow2-explicit-component-enrollment.md)
+- [FMalloc discovery and unbounded memory growth](../fixes/tow2-fmalloc-memory-leak.md)
 
 # Citations
 

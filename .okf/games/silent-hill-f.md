@@ -1,11 +1,12 @@
 ---
 type: game-profile
-title: Silent Hill f (SHf) — local Native candidate, profile and limitations
-description: SHf now has a published experimental UE5.7/OpenXR compatibility source and alpha.2 profile with reliable injection, bounded owned resources and both-eye Native Stereo; AFW and automatic DLSS repair remain limited.
+title: Silent Hill f (SHf) — rebuilt AFW profile, compatibility state and limitations
+description: SHf's maintained rebuilt first-person profile uses cold-start Previous Frame AFW with Native Stereo Fix off; alpha.4 publishes the f37 plus fail-closed SceneView backend as an experimental prerelease with decisive guard-path and broader cross-game validation still open.
 tags:
 - silent-hill-f
 - shf
-- ue5.7
+- ue5.7-lineage
+- ue5.4.2
 - openxr
 - psvr2
 - native-stereo
@@ -13,31 +14,39 @@ tags:
 - vrs
 - dlss
 - afw
-timestamp: '2026-08-02T19:01:32+09:00'
+timestamp: '2026-08-12T13:33:00+09:00'
 ---
 
 # Identity and proven baseline
 
 - Executable: `SHf-Win64-Shipping.exe`
-- Engine family: UE5.7
+- Engine family: crash metadata reports UE 5.4.2 (`5.4.2-0+++NOCEDev`).
+  “UE5.7” remains only a historical branch/lineage label.
 - Renderer/runtime: D3D12 + OpenXR; the proven local era used PSVR2 through
   SteamVR/OpenXR.
 - Historical rendering baseline: Native Stereo in Joey Hodge's UEVR lineage.
-- Current status: the narrow PureDark beta.4 compatibility source now injects
-  reliably, renders both eyes in Native Stereo, keeps resource allocation
-  bounded, and permits a manual Native → AFW transition. **This status was
-  invalidated by a Steam game update — see the 2026-07-31 regression section
-  below.**
-- Publication status: source commit `cc0c43f9` publishes the runtime-tested
-  candidate. Prerelease alpha.2 includes its backend and a clean SHf profile;
-  alpha.1 remains unsupported for SHf.
-- Recommended mode: Native Stereo. AFW is technically functional but is not
-  recommended because its small additional GPU saving comes with hand/weapon
-  distortion and no CPU-cadence improvement.
-- Runtime-tested local candidate hashes:
-  - `UEVRBackend.dll`: `5be7b51883590cb95e07f7c92e1fdd864d560e3df7a0b5819774531dd42cf9f9`
-  - `UEVRBackend.pdb`: `1692ed761d0e63c3da8ac3e9c92fb235ea3987c5b9f726637de64cba99243620`
-  - PureDark beta.4 `PDAFWPlugin.dll`: `76bbc4d7a5370ba0d6a1a50de6b81d45223e42b764d2d7c79f0c6c48a59f6b64`
+  The current first-person profile does **not** use Native Stereo Fix.
+- Current status: the rebuilt first-person profile starts directly in Previous
+  Frame AFW with bounded resources, Ghosting Fix/Bootstrap enabled and
+  moving-object brightness correction disabled. Native Stereo Fix makes its
+  image incorrect and must remain off.
+- Alpha.4 backend status: the f37 plus SHf SceneView fail-closed backend
+  completed one approximately 35-minute stable run after PSVR2 runtime
+  recovery. A later approximately 16-minute gameplay run also remained free of
+  the old SceneView crash, but exposed a separately symbolized Lua
+  `ScriptContext` destructor logging AV during process exit; that invalid
+  shutdown call is now removed. Neither SceneView guard signature appeared.
+- Profile publication status: `profiles/SHf-Win64-Shipping/` now maintains a
+  sanitized snapshot of the active rebuilt first-person/6DoF profile, including
+  its settle/core/IK wiring and UObjectHook camera state. The old alpha.2 release
+  archive remains historical and must not be merged over this package.
+- Backend publication status: alpha.4 publishes the matching f37 plus
+  SceneView-guard backend as an experimental prerelease. Alpha.1 remains
+  unsupported for SHf.
+- Current experimental candidate hashes:
+  - `UEVRBackend.dll`: `ecf7ac708e39e4c7a513d9749a35155a181bd095b1a31e16b2be543361198e49`
+  - `UEVRBackend.pdb`: `f4e49192cc3c3d38f2544a069d31e7b584c1aeb04fd261530a91a416d06b4e49`
+  - amended beta.4 `PDAFWPlugin.dll`: `b129118ba239e0c9fd7b0c803dab0199242af7142c7b9541e656e2f3eaca8ff9`
 - Historical working checkpoint tags:
   - `57shf54` at `f10ec09a` — UE5.7 OpenXR resolution/frame/input correction.
   - `shf57` at `b8bb816e` — SHf stable UI/scene-target baseline.
@@ -162,13 +171,80 @@ switching clean) on the AFW-Compat backend `54c5f9d3…`. The profile
    `smoothTurnSpeed` 106 → 60 (also adjustable via the scripts' in-game
    "Smooth Turn Speed" slider — stock UEVR only exposes snap turn).
 
-Open items: the runtime Native↔AFW switch remains unsafe with this profile
-(heap corruption in/around the transition with Lua stereo callbacks
-registered) — cold-start the desired mode instead. DLSS may still need the
+Open items: AFW lifecycle remains unsafe with this profile. Start directly in
+the desired mode from a fresh process; the retained first-person checkpoint
+uses cold-start Previous Frame AFW. Restart to change modes, and never re-enter
+AFW in the same process. DLSS may still need the
 manual in-game quality reapply after injection. Still held back:
 `uevr_mcp.dll`, OpenVR binding JSONs (unneeded under OpenXR). Backend
 follow-up: fix or gate the AFW-path Lua stereo-view dispatch so profiles keep
 camera features under AFW.
+
+# 2026-08-07: intermittent SceneView race on the FMalloc candidate
+
+Two SHf runs on the TOW2 `f37f61c` FMalloc candidate crashed with
+`EXCEPTION_ACCESS_VIOLATION` reading `0xffffffffffffffff` in
+`FFakeStereoRenderingHook::sceneview_constructor()` line 3173:
+
+- the immediately preceding discovery failed to prove `FSceneViewFamily`
+  offsets and guessed scene-interface offset `0x10`;
+- no `FMalloc::get()` line appeared, so allocator discovery did not cause it;
+- the same function, line and exception address exist in an older pre-f37
+  transition/re-entry crash, proving the underlying SceneView race predates
+  f37.
+
+One of those runs initialized with Native Stereo Fix and Same Pass enabled. The
+image was wrong, those controls were disabled in the UI, and selecting AFW then
+crashed. That run is invalid as an A/B because disabling a hook control does not
+undo hooks already installed in that process.
+
+A subsequent fresh cold-AFW run did **not** crash. Its log authoritatively
+identified the f37 candidate (`70f6e508+local-uesdk-f37f61c`), despite an
+intended old-backend control deployment. It ran for about 213 seconds with the
+retained profile state: mode 2, Native Stereo Fix/Same Pass off,
+Ghosting/Bootstrap on and moving-object brightness correction off. Discovery
+again had early difficulty, but did not fall through to the fatal guessed scene
+offset.
+
+Therefore f37 does not deterministically regress SHf and its allocator logic is
+not implicated. SHf still blocks clean promotion because the pre-existing,
+timing-sensitive SceneView discovery race can kill otherwise identical starts.
+The exact pre-f37 A/B was not performed; an isolated control deployment remains
+available but must never be used for TOW2 because it lacks f37.
+
+A narrow uncommitted candidate now applies the existing validate-or-skip rule at
+this exact call site: on SHf only it publishes the source-confirmed
+`views=0x8/render-target=0x30/scene=0x38` layout after live range, array and
+module-vtable validation; otherwise it skips scene-dependent remapping and lets
+a later constructor retry. It does not enable the rejected Avowed per-frame
+rescan behavior. See [SHf FSceneViewFamily validated layout and fail-closed constructor guard](../fixes/shf-sceneviewfamily-fail-closed.md).
+
+# 2026-08-12: gameplay pass and exit-time Lua lifetime correction
+
+The current working profile/backend completed approximately 16 minutes of SHf
+gameplay without the old SceneView constructor crash. At process exit, after
+OpenXR lost focus and NVIDIA shutdown began, UEVR generated `crash.dmp` for an
+access violation in the backend. Matching-PDB symbolization resolved it to
+`ScriptContext::log()` line 94, called by the `ScriptContext` destructor after
+the plugin API function table was no longer safe.
+
+The narrow correction removes only that destructor diagnostic call. It is
+independent of SHf scene-family discovery and documented in the
+[Lua ScriptContext shutdown logging guard](../fixes/lua-scriptcontext-shutdown-log.md).
+The release build should receive a clean-exit retest.
+
+# 2026-08-08: first stable combined-candidate run
+
+After a separate PSVR2/SteamVR watchdog failure was recovered, the same f37 plus
+SceneView-guard candidate ran the retained cold-AFW profile for approximately
+35 minutes without a new UE crash report, allocator failure, GPU/device-hung
+signature or PSVR2 watchdog. SteamVR later exited gracefully.
+
+Neither `[SHf] Published validated FSceneViewFamily layout ...` nor the
+transient fail-closed warning appeared. The run therefore validates broad SHf
+stability but does not prove that the new guard intercepted the formerly fatal
+constructor timing. Keep repeating fresh cold starts until a guard signature is
+captured; then regression-test Avowed, TOW2 and SH2 before promotion.
 
 # Why baseline UEVR originally failed
 
@@ -266,18 +342,22 @@ must stop once the scene target is bootstrapped. Continuous null-vtable,
 backbuffer, renderer-setup, `frame_began`, or rehook lines mean baseline
 initialization did not complete.
 
-# Injection procedure
+# Current injection procedure
 
-1. Use a clean SHf profile and a fresh `SHf-Win64-Shipping.exe` process; inject
-   early rather than attaching after the title has initialized its renderer.
-2. Start with Native Stereo. Do not persist AFW as the startup method.
-3. Let OpenXR, the final `2632x2684` per-eye target, scene copies and profile Lua
-   stabilize before opening graphics settings or changing rendering modes.
+1. Use the retained rebuilt SHf profile and a fresh
+   `SHf-Win64-Shipping.exe` process; inject early rather than attaching after
+   the title has initialized its renderer.
+2. Start directly in Previous Frame AFW (`VR_RenderingMethod=3`, mode `2`) with
+   Native Stereo Fix and Same Pass both off. Do not change rendering modes in
+   that process.
+3. Let OpenXR, the final per-eye target, scene copies and profile Lua stabilize
+   before opening graphics settings. If DLSS is stale, change it away from and
+   back to Performance in the game menu.
 4. Keep warning-level logging for performance runs. In one diagnostic capture,
    hot texture-hook `info` messages accounted for about 96% of a 327,787-line
    log.
-5. If AFW is tested, select it manually only after gameplay begins and restart
-   the game to return to Native.
+5. Restart the process to change rendering modes. PDAFW has no teardown API;
+   never switch AFW → Native → AFW in-process.
 
 The first PureDark bootstrap candidate violated these rules internally: it
 created 1,289 UI textures and performed 1,290 D3D12 texture setups in about 52
@@ -293,37 +373,27 @@ libraries, including `bUseControllerRotationPitch`. The deployed
 rotation and movement-bool reads/writes. This prevents missing optional
 properties from becoming per-frame LuaVR exceptions.
 
-# Recommended profile
+# Current rebuilt-profile configuration
 
-The stable launch shape is Native/OpenXR with AFW stored but inactive:
+The retained checkpoint starts directly in Previous Frame AFW:
 
 ```ini
 FrameworkConfig_LogLevel=3
 Frontend_RequestedRuntime=openxr_loader.dll
-VR_RenderingMethod=0
-VR_NativeStereoFix=true
-VR_NativeStereoFixSamePass=true
-VR_SynchronizationMode=2
-VR_ExtremeCompatibilityMode=false
-VR_RecreateTexturesOnReset=true
-VR_GhostingFix=false
-VR_GhostingFixBootstrapViewStates=false
+VR_RenderingMethod=3
+VR_NativeStereoFix=false
+VR_NativeStereoFixSamePass=false
+VR_GhostingFix=true
+VR_GhostingFixBootstrapViewStates=true
 VR_AFW_FramewarpMode=2
 VR_AFW_FixMovingObjectBrightnessFlickering=false
-VR_AFW_FixObjectMotionRange=3.000000
-VR_AFW_IgnoreMotionThreshold=2.500000
-VR_AFW_UltraResponsive=true
 ```
 
-`VR_AFW_FramewarpMode=2` records Previous Frame mode but does not activate it
-while `VR_RenderingMethod=0`. Never automatically enable AFW for SHf. Profile
-experiments can re-save Ghosting Fix bootstrap independently; reset both
-Ghosting Fix values to `false` before the next Native launch.
-
-The original runtime-tested candidate has exact backend/PDB/runtime hashes, and
-source commit `cc0c43f9` plus the alpha.2 profile publish the corresponding
-implementation and launch state. Preserve fresh-process backend/PDB/config/
-scripts/log manifests when validating the rebuilt release binary.
+Native Stereo Fix/Same Pass must remain off for this profile. Install the
+maintained source-tree profile into a clean directory; do not merge the old
+alpha.2 release profile over it because removed top-level scripts can survive.
+Preserve fresh-process backend/PDB/config/scripts/log manifests when validating
+any rebuilt release binary.
 
 # DLSS startup and profile behavior
 
@@ -385,45 +455,39 @@ SHf was also the first testbed for experimental injected VRS
 
 # AFW local status and limitations
 
-The narrow local beta.4 candidate successfully reconciles the required Joey
-bootstrap/resource mechanisms with PureDark AFW, but it is not release-ready:
+The current rebuilt profile uses cold-start Previous Frame AFW rather than the
+older Native-first alpha.2 procedure:
 
-- Native Stereo renders both eyes without runaway allocation.
-- Manual Native → Previous Frame AFW works after gameplay begins. A measured
-  run reported 40.28 application FPS, 89.90 Hz total cadence, 16.74 ms GPU,
-  21.34 ms CPU and zero dropped frames.
-- Ghosting Fix established stable eye ownership, but hand/weapon distortions
-  remained. Preserved SH2 motion tuning improved them without eliminating them.
-- After the DLSS setting is correctly reapplied, AFW removes only another
-  roughly 3–4 ms of GPU time. Application cadence remains around 40–41 FPS
-  because CPU timing is approximately 21–24 ms.
+- Ghosting Fix plus Bootstrap and object motion vectors recovered stable eye
+  ownership; moving-object brightness correction remains off.
+- AFW can synthesize toward the headset cadence, but the application remains
+  CPU-limited and residual hand/weapon distortion is still possible.
+- The game-owned DLSS quality reapply remains the only safe workaround.
 - AFW → Native remains unsafe because PDAFW exposes no teardown API and can
-  leave the right eye black. Restart to leave AFW.
-- Brightness-flicker correction stays disabled because it can introduce
-  pumping/shimmer.
+  leave the right eye black. Restart to change modes.
+- The combined f37 plus SceneView-guard candidate completed one approximately
+  35-minute stable run, but did not emit either decisive guard signature.
 
-Consequently Native Stereo plus the manual DLSS reapply is the recommended SHf
-configuration. Alpha.2 publishes the working experimental source, backend and
-profile, but remains a prerelease until sustained gameplay, transitions and
-image quality are reproduced with the released hashes.
+The alpha.2 release archive remains a historical prerelease checkpoint. The
+maintained source-tree SHf profile now supersedes its profile contents for any
+future package.
 
 # Remaining gaps
 
-- Source and profiles are published, but the rebuilt alpha.2 backend still
-  requires runtime reproduction against its released hashes.
-- No sustained clean-run checkpoint yet combines the alpha.2 backend, PDB,
-  loader, installed profile, game config and long gameplay log.
+- Clean-exit retest the release build to confirm the Lua destructor no longer
+  produces an exit-time dump.
+- Repeat fresh cold-AFW starts until the validated-layout or transient
+  fail-closed signature proves the guarded constructor path was exercised.
+- Regression-test the combined f37 plus SceneView candidate in Avowed, TOW2 and
+  SH2 before release promotion.
 - DLSS still requires a manual game-menu reapply after startup; profile L at an
   exact Ultra Performance fraction has not been telemetry-confirmed.
 - Reflected settings automation is rejected because it froze the game; direct
   NGX release remains prohibited because the game owns those handles.
-- AFW hand/weapon distortion, missing teardown and CPU-limited cadence make AFW
-  unsuitable as the recommended mode.
-- Source commit `cc0c43f9` isolates the retained vtable bootstrap,
-  scene-capture copy, composition, rehook and direct-pose follow-ups; their
-  cross-game regression surface still requires testing.
-- Re-test long Native gameplay, cinematics, save/load and graphics transitions
-  before publishing; test actual Silent Hill 2 separately under
+- Residual AFW hand/weapon distortion, missing teardown and CPU-limited cadence
+  remain open limitations.
+- Test loading, menus, weapon swaps, gameplay and clean exit across repeated
+  SHf starts; test actual Silent Hill 2 separately under
   `SHProto-Win64-Shipping.exe`.
 
 # Relationships
@@ -431,6 +495,7 @@ image quality are reproduced with the released hashes.
 - 6DoF method: [Stable 6DoF profile creation](../playbooks/basic-6dof-setup.md)
 - Profile fix: [Minimal SHf profile rebuild](../fixes/shf-profile-rebuild-main-lua-removal.md)
 - Renderer fix: [SHf OpenXR bootstrap](../fixes/shf-ue57-openxr-bootstrap.md)
+- Shutdown fix: [Lua ScriptContext lifetime guard](../fixes/lua-scriptcontext-shutdown-log.md)
 - Contrast: [Silent Hill 2](silent-hill-2.md)
 
 # Citations
@@ -450,4 +515,5 @@ image quality are reproduced with the released hashes.
   `<evidence-root>/shf-stable-resources-candidate2-20260722`,
   `<evidence-root>/shf-dlss-generation-telemetry-candidate4-20260722`, and
   `<evidence-root>/shf-reflected-settings-candidate5-freeze-20260722`
-- Profile: `%APPDATA%\UnrealVRMod\SHf-Win64-Shipping\`
+- Maintained package: `profiles/SHf-Win64-Shipping/`
+- Runtime install: `%APPDATA%\UnrealVRMod\SHf-Win64-Shipping\`

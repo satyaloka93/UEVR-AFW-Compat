@@ -1,7 +1,7 @@
 ---
 type: fix
 title: SHf profile rebuild — replacing main.lua with minimal gameplay wiring
-description: The inherited SHf first-person profile crashed repeatedly on the post-update exe; the fix was to delete main.lua (a monolith that pulled the crashy library stack in only to build developer/config panels) and re-implement its ~80 lines of real gameplay wiring, plus a settle gate and reload hardening, in three standalone scripts.
+description: The inherited SHf profile was rebuilt by deleting crash-prone main.lua and re-implementing its required gameplay wiring, settle gate and reload hardening in three standalone scripts; the sanitized working first-person/6DoF package is now maintained under profiles/SHf-Win64-Shipping.
 tags:
 - silent-hill-f
 - shf
@@ -10,7 +10,8 @@ tags:
 - uobjecthook
 - attachments
 - crash
-timestamp: '2026-08-02T18:32:21+09:00'
+timestamp: '2026-08-12T13:33:00+09:00'
+resource: profiles/SHf-Win64-Shipping
 ---
 
 # Symptom
@@ -124,6 +125,21 @@ the instability are the inherent cost of IK solving, roomscale camera writes and
 attachment updates every frame, not leftover debug code; the swing also tracks
 the game's dynamic resolution scaler hunting under variable script load.
 Frame-pacing work is open, not attempted.
+
+# Maintained profile package
+
+The authoritative repository directory `profiles/SHf-Win64-Shipping/` now
+contains a sanitized snapshot of this working rebuilt profile. It includes the
+active config, camera/CVar state, data and Lua dependency tree,
+`00_settle.lua`, `91_button_swap.lua`, `92_core_init.lua`, the disabled native
+weapon-attachment rollback, helper DLL, and UObjectHook camera/hidden-component
+state.
+
+It excludes runtime logs, SDK discovery cache, ImGui state, generated callback
+state, backups, parked `main.lua`/`hands.lua`, and editor metadata. Install it
+into a clean profile directory rather than merging over the old alpha.2 package,
+otherwise deleted top-level scripts can survive and restore the crash-prone
+architecture.
 
 # What the rebuilt profile actually activates
 

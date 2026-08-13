@@ -14,12 +14,12 @@ the fixes that produced them, and the playbooks for analysing new problems.
 * [Avowed](games/avowed.md) — working 6DoF/AFW state and crafting attachment-lifetime guard.
 * [The Outer Worlds 2](games/outer-worlds-2.md) — safe Native startup, beta.4 Previous Frame AFW zero-ghosting checkpoint, committed Steam weapon enrollment and a packaged 6DoF overlay.
 * [Hogwarts Legacy](games/hogwarts-legacy.md) — transition-cooldown crash fix.
-* [Silent Hill f](games/silent-hill-f.md) — alpha.2 publishes the runtime-tested Native/UE5.7 injection candidate and profile; DLSS still needs a manual workaround and AFW remains limited.
-* [Silent Hill 2](games/silent-hill-2.md) — Native-first renderer checkpoint plus a separately preserved full plugin/IK first-person profile.
+* [Silent Hill f](games/silent-hill-f.md) — alpha.4 publishes the maintained rebuilt first-person/6DoF profile and the f37 plus fail-closed SceneView backend; decisive guard-path and broader cross-game validation remain open.
+* [Silent Hill 2](games/silent-hill-2.md) — forced-Native, Native-Stereo-Fix-on renderer checkpoint plus a separately preserved full plugin/IK first-person profile; AFW remains unsafe.
 
 ## Fixes
 
-* [Fix index](fixes/index.md) — 20 reusable engine/runtime/profile fixes, including SH2 Native-first startup, SHf bootstrap/profile hardening, stale attachments, TOW2 title/enrollment work, and AFW beta.4 guards.
+* [Fix index](fixes/index.md) — 23 reusable engine/runtime/profile fixes, including SH2 Native-first startup, SHf bootstrap/SceneView hardening, Lua shutdown lifetime protection, stale attachments, TOW2 title/enrollment/FMalloc work, and AFW beta.4 guards.
 
 ## Playbooks
 

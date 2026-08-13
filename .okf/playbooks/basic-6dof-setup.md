@@ -9,7 +9,7 @@ tags:
 - lua
 - profile
 - process
-timestamp: '2026-08-02T19:12:00+09:00'
+timestamp: '2026-08-04T07:54:00+09:00'
 ---
 
 # Scope
@@ -84,6 +84,32 @@ change only the first failing one:
 A diagnostic should report these booleans and addresses at low frequency. Park
 it after the question is answered; warning-level logs and per-frame string
 building can distort the result.
+
+## Avowed: do not skip the raw-pose/component phase
+
+The parked `LocalAvatarNativeBoneDriver` experiment is not a proven 6DoF
+solution: it is uncommitted local code, absent from the maintained AFW backend,
+and has no retained `NativeBoneDriver applied(raw)` success evidence. The
+known-good `_mine` profile uses old UObjectHook weapon attachment and keeps
+native weapon ownership off.
+
+For current Avowed hand work, copy `_mine` into an isolated Native/2D-safe
+candidate, leave its weapon/loadout/melee architecture unchanged, and add only
+a read-only probe. Record HMD/left/right translation, controller-to-HMD deltas,
+API local-pawn/`AcknowledgedPawn` identity, `FirstPersonMesh` and bounded child
+addresses, `UObjectHook.exists`, and existing motion-controller state through
+loading. Try existing first-person arm/glove components before any bone writer.
+Only if those components cannot express persistent hands should an Avowed-only,
+default-off bone experiment be reconsidered.
+
+The first read-only pass proved independent controller translation and resolved
+`FirstPersonSkelMesh`, but the pawn, first-person mesh and character mesh all
+reported `UObjectHook.exists=false`. Its bounded children contained weapon
+utility rigs and generated poseable meshes, not separate ordinary left/right
+hand scene components. Two Native/2D passes were visually black, including an
+isolated 2D screen-distance/size correction. The probe and investigation are
+parked and the active profile is restored from the untouched `_mine` anchor.
+Never attach the entire first-person skeletal root to one controller.
 
 # When you need Lua instead
 
@@ -237,7 +263,7 @@ controller-aim profile's gameplay method with game aim.
 | Game | 6DoF problem | Smallest working pattern | Reusable lesson |
 |---|---|---|---|
 | [TOW2](../games/outer-worlds-2.md) | Late Steam weapon components missed guarded discovery | TOW2-only explicit backend enrollment plus a minimal parent-preserving Lua attachment | Separate state creation from object enrollment; never weaken global discovery to fix one late object |
-| [Avowed](../games/avowed.md) | Visible avatar can differ from `AcknowledgedPawn`; inventory proxies and loadout churn replace targets | Local-avatar resolver, hardened dynamic Lua, stale-vtable guards; native bone ownership remains off | Resolve gameplay avatar context and treat crafting/loadout as destructive lifetime transitions |
+| [Avowed](../games/avowed.md) | Inventory proxies and loadout churn replace targets; current persistent hands are unproven | Known-good dynamic Lua plus stale-vtable guards; raw pose and existing `FirstPersonMesh` components must be diagnosed before the parked resolver/bone experiment | Treat crafting/loadout as destructive lifetime transitions and do not mistake uncommitted bone research for a working dependency |
 | [Silent Hill 2](../games/silent-hill-2.md) | First-person camera, IK hands, two-hand interaction and melee are a coordinated profile feature | Full profile/plugin stack (`camera.lua`, `main.lua`, `melee.lua`, IK/attachments and game plugin) | Do not force every game through saved UObjectHook state; preserve a validated full profile atomically |
 | [Silent Hill f](../games/silent-hill-f.md) | Dynamic grip pose and IK are required, but the inherited monolith crashed during object churn | Minimal standalone wiring, pawn settle gate, property-chain lookups and stale-reference clearing | Keep only the modules needed for gameplay; grip-pose requirements justify IK, not unsafe global scans |
 
@@ -301,7 +327,7 @@ Remove identity/pose/stage probes from the final profile.
 # Related
 
 - [TOW2 explicit dynamic-component enrollment](../fixes/tow2-explicit-component-enrollment.md)
-- [Local-avatar resolution and native bone driver](../fixes/local-avatar-native-bone-driver.md)
+- [Avowed local-avatar resolver and parked native bone-driver experiment](../fixes/local-avatar-native-bone-driver.md)
 - [Avowed stale attachment guard](../fixes/avowed-stale-attachment-guard.md)
 - [SHf minimal profile rebuild](../fixes/shf-profile-rebuild-main-lua-removal.md)
 - [Checkpoint and recovery](checkpoint-and-recovery.md)

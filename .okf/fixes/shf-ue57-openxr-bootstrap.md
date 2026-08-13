@@ -1,7 +1,7 @@
 ---
 type: fix
 title: Silent Hill f — UE5.7 OpenXR and render-target bootstrap
-description: 'SHf injection requires a staged UE5.7/OpenXR startup plus bounded, UEVR-owned scene/UI resources; source commit cc0c43f9 and alpha.2 publish the runtime-tested both-eye Native candidate.'
+description: 'Historical Joey-lineage SHf injection foundation: staged OpenXR startup plus bounded, UEVR-owned scene/UI resources. Alpha.2 published the Native-era candidate; the current rebuilt profile and SceneView guard are tracked separately.'
 tags:
 - silent-hill-f
 - shf
@@ -11,7 +11,7 @@ tags:
 - startup
 - render-target
 - native-stereo
-timestamp: '2026-07-22T10:48:00+09:00'
+timestamp: '2026-08-08T19:35:00+09:00'
 ---
 
 # Scope
@@ -19,8 +19,14 @@ timestamp: '2026-07-22T10:48:00+09:00'
 This fix documents the working **Joey Hodge baseline UEVR lineage** and the
 bounded resource rules validated by the PureDark beta.4 port. Source commit
 `cc0c43f9` publishes the candidate that injects and renders both eyes in Native
-Stereo; alpha.2 packages its rebuilt backend and clean profile. Alpha.1 remains
+Stereo; alpha.2 packages that historical backend/profile era. Alpha.1 remains
 unsupported for SHf.
+
+This concept does not define the current profile mode. Crash metadata identifies
+the game as UE 5.4.2; “UE5.7” is retained here only as the historical branch
+label. The later rebuilt first-person profile starts cold Previous Frame AFW
+with Native Stereo Fix off, and its current SceneView protection is documented
+in [the fail-closed guard](shf-sceneviewfamily-fail-closed.md).
 
 # Problem
 
@@ -97,10 +103,11 @@ loop. Both eyes rendered and AFW could subsequently be selected manually
 without the earlier VRAM runaway. These results validate the injection/resource
 fix, not AFW image quality or publication readiness.
 
-Use a fresh process, inject early and start with `VR_RenderingMethod=0`. Late
-attachment and AFW-at-startup have not been validated. Keep warning-level
-logging during performance tests; high-frequency texture diagnostics can
-dominate the log and add avoidable I/O overhead.
+For the historical alpha.2 Native profile, validation used a fresh process,
+early injection and `VR_RenderingMethod=0`. Do not apply that startup state to
+the later rebuilt profile, which has separately validated cold-start Previous
+Frame AFW. Keep warning-level logging during performance tests; high-frequency
+texture diagnostics can dominate the log and add avoidable I/O overhead.
 
 # Key implementation rules
 
@@ -183,12 +190,12 @@ or continuous renderer setup means the working path was not reached.
 
 # Scope and porting rule
 
-This remains primarily a Joey-derived UEVR/UE5.7 injection and resource-lifetime
-fix. The published PureDark beta.4 port proves those pieces can coexist with
-AFW, but AFW is not the recommended SHf mode. Port startup, OpenXR ownership and owned-resource pieces
-narrowly; do not copy the original diagnostic/RenderInspector subsystem
-wholesale. Preserve exact UESDK compatibility and treat PDAFW runtime, header
-and callers as one checkpoint.
+This remains primarily a Joey-derived injection and resource-lifetime fix. The
+published PureDark beta.4 port proves those pieces can coexist with AFW, but
+rendering-mode guidance belongs to the current game/profile concept. Port
+startup, OpenXR ownership and owned-resource pieces narrowly; do not copy the
+original diagnostic/RenderInspector subsystem wholesale. Preserve exact UESDK
+compatibility and treat PDAFW runtime, header and callers as one checkpoint.
 
 The DLSS startup-quality workaround and AFW visual/performance limits are
 tracked in [the SHf game profile](../games/silent-hill-f.md), not generalized as
@@ -199,6 +206,7 @@ part of this injection fix.
 - [/games/silent-hill-f.md](../games/silent-hill-f.md)
 - [/fixes/native-stereo-safe-activation.md](native-stereo-safe-activation.md)
 - [/fixes/render-target-validation-hardening.md](render-target-validation-hardening.md)
+- [SHf SceneView fail-closed guard](shf-sceneviewfamily-fail-closed.md)
 - [/playbooks/checkpoint-and-recovery.md](../playbooks/checkpoint-and-recovery.md)
 
 # Citations
