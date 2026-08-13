@@ -58,6 +58,27 @@ standing rules are in [narrow port scope](../decisions/narrow-port-scope.md).
 
 # Public alpha releases
 
+## Alpha.4
+
+- Prerelease: `afw-beta4-compat-v0.1.0-alpha.4`
+- URL: `https://github.com/satyaloka93/UEVR-AFW-Compat/releases/tag/afw-beta4-compat-v0.1.0-alpha.4`
+- Tagged source/build commit: `eca65b9b980b4a1bd0d8731d120355d1e69009c9`
+- UESDK checkpoint: `7610b0166cdfb6767b67836d11d751bee15900cd`
+- Publishes the TOW2 FMalloc case correction, SHf fail-closed SceneView guard,
+  Lua exit-time lifetime fix, first released TOW2 explicit-enrollment backend,
+  and complete maintained SHf first-person/6DoF profile.
+- Published hashes:
+  - `UEVRBackend.dll`: `1e502f87bb64484b676dd91c25f52ff74d161c6311ee904bd796e7df2f769593`
+  - `UEVRBackend.pdb`: `1d5d7214d351e3a5ebfbcb21d8d15ad743ddbcec0aab2029a1a736fc8e6b8aca`
+  - amended beta.4-derived `PDAFWPlugin.dll`: `b129118ba239e0c9fd7b0c803dab0199242af7142c7b9541e656e2f3eaca8ff9`
+  - main ZIP: `69f693a92b9ad909725487b2adf1cb8a9f3ba71e6fbbdff6eadd316c6c7ce6bf`
+  - symbols ZIP: `3297bda8eab9aad21cffcb158478437284c4d89a2ec739971edcf82bf9a65301`
+  - profiles ZIP: `90c542c30dba3d8c273828b7c03c705bb2af033c2de1edb115701c629538c75a`
+- Downloaded GitHub assets were rehashed against `RELEASE_SHA256SUMS.txt` after
+  publication and all matched.
+- Keep alpha.4 marked prerelease until the SHf guard path, clean exit and
+  broader maintained-game regression are complete.
+
 ## Alpha.2
 
 - Prerelease: `afw-beta4-compat-v0.1.0-alpha.2`

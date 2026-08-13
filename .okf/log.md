@@ -1,5 +1,8 @@
 # Update Log
 
+## 2026-08-13
+* **Alpha.4 published and verified**: Tagged source commit `eca65b9b`, built a correctly identified Release backend, published main/profiles/symbols archives plus SHA-256 manifest, then downloaded and rehashed every GitHub asset successfully. Backend `1e502f87...`, PDB `1d5d7214...`, tested amended PDAFW `b129118b...`. The release remains a prerelease pending SHf guard-path/clean-exit and broader maintained-game regression. See [PureDark AFW integration](projects/puredark-afw-integration.md).
+
 ## 2026-08-12
 * **Alpha.4 prerelease publication approved**: Prepared the committed f37-equivalent FMalloc correction, SHf fail-closed SceneView guard, Lua shutdown lifetime fix, TOW2 explicit enrollment backend, complete maintained SHf first-person/6DoF profile, matching symbols/runtime package and refreshed portable OKF. Remaining SceneView guard-path, clean-exit and broader cross-game checks keep the release experimental rather than stable.
 * **Lua shutdown lifetime fix**: A later approximately 16-minute SHf gameplay pass avoided the historical SceneView crash but generated an exit-time backend dump. Matching-PDB symbolization resolved RVA `0x4cc187` to `ScriptContext::log()` line 94: the context destructor routed a diagnostic through an already unsafe plugin API function table. Removed only that destructor log call; normal Lua logging remains intact. See [Lua ScriptContext shutdown logging guard](fixes/lua-scriptcontext-shutdown-log.md).

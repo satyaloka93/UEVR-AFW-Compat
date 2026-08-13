@@ -43,10 +43,10 @@ timestamp: '2026-08-12T13:33:00+09:00'
 - Backend publication status: alpha.4 publishes the matching f37 plus
   SceneView-guard backend as an experimental prerelease. Alpha.1 remains
   unsupported for SHf.
-- Current experimental candidate hashes:
-  - `UEVRBackend.dll`: `ecf7ac708e39e4c7a513d9749a35155a181bd095b1a31e16b2be543361198e49`
-  - `UEVRBackend.pdb`: `f4e49192cc3c3d38f2544a069d31e7b584c1aeb04fd261530a91a416d06b4e49`
-  - amended beta.4 `PDAFWPlugin.dll`: `b129118ba239e0c9fd7b0c803dab0199242af7142c7b9541e656e2f3eaca8ff9`
+- Alpha.4 release hashes:
+  - `UEVRBackend.dll`: `1e502f87bb64484b676dd91c25f52ff74d161c6311ee904bd796e7df2f769593`
+  - `UEVRBackend.pdb`: `1d5d7214d351e3a5ebfbcb21d8d15ad743ddbcec0aab2029a1a736fc8e6b8aca`
+  - amended beta.4-derived `PDAFWPlugin.dll`: `b129118ba239e0c9fd7b0c803dab0199242af7142c7b9541e656e2f3eaca8ff9`
 - Historical working checkpoint tags:
   - `57shf54` at `f10ec09a` — UE5.7 OpenXR resolution/frame/input correction.
   - `shf57` at `b8bb816e` — SHf stable UI/scene-target baseline.
