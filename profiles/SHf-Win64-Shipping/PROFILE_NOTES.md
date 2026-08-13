@@ -2,24 +2,50 @@
 
 Executable: `SHf-Win64-Shipping.exe`
 
-## Required startup state
+## Maintained working profile
 
-This profile intentionally starts in Native Stereo:
+This directory is the sanitized repository snapshot of the currently working
+rebuilt first-person/6DoF profile. It supersedes the old alpha.2 package in this
+source tree.
+
+The working profile deliberately removes top-level `main.lua` and `hands.lua`
+and loads:
+
+- `00_settle.lua` — pawn-stability gate across startup/loading;
+- `91_button_swap.lua` — standalone dodge-button mapping;
+- `92_core_init.lua` — pawn, attachment, input and IK initialization plus the
+  weapon-grip callback that provides the closing-hand 6DoF pose;
+- `shf.lua`, `melee.lua` and `examine.lua`.
+
+The package also retains its active data/Lua libraries, UObjectHook camera and
+hidden-component state, the helper DLL, and the disabled calibrated native
+weapon-attachment rollback. Runtime logs, SDK cache, ImGui state, generated
+callback state, backups, parked scripts and editor metadata are excluded.
+
+Base profile lineage: [letmein-vr/SHF_UEVR](https://github.com/letmein-vr/SHF_UEVR/).
+The settle/minimal-core rebuild and compatibility hardening are documented in
+the repository OKF.
+
+## Required working state
+
+The retained checkpoint starts directly in Previous Frame AFW and does not use
+Native Stereo Fix:
 
 ```ini
 FrameworkConfig_LogLevel=3
 Frontend_RequestedRuntime=openxr_loader.dll
-VR_RenderingMethod=0
-VR_NativeStereoFix=true
-VR_NativeStereoFixSamePass=true
-VR_GhostingFix=false
-VR_GhostingFixBootstrapViewStates=false
+VR_RenderingMethod=3
+VR_NativeStereoFix=false
+VR_NativeStereoFixSamePass=false
+VR_GhostingFix=true
+VR_GhostingFixBootstrapViewStates=true
 VR_AFW_FramewarpMode=2
 VR_AFW_FixMovingObjectBrightnessFlickering=false
 ```
 
-Use a fresh process and inject early. Wait for both eyes and the final VR target
-to stabilize before opening graphics settings.
+Use a fresh process and inject early. Native Stereo Fix produces an incorrect
+image in SHf's current profile. Restart the process rather than switching out
+of and back into AFW.
 
 ## DLSS workaround
 
@@ -34,11 +60,17 @@ GPU time, but the exact one-third input fraction was not telemetry-confirmed.
 
 ## AFW limitation
 
-AFW is optional and manual only. Native to Previous Frame AFW works after
-entering gameplay, but hand/weapon distortion remains and the application is
-usually CPU-limited near 40–41 FPS. Do not switch AFW back to Native in-process;
-PDAFW has no teardown API and the right eye can remain black. Restart the game
-to leave AFW.
+The rebuilt profile's retained checkpoint uses cold-start Previous Frame AFW.
+Do not switch AFW back to Native in-process; PDAFW has no teardown API and the
+right eye can remain black. Restart the game to change rendering modes.
+
+The physical-melee script is preserved because it is part of the working
+profile, but its saved JSON calibration is not currently applied after removal
+of `main.lua`; firearms remain untested. Do not add back the old monolithic
+scripts to recover their configuration UI.
 
 The existing `afw-beta4-compat-v0.1.0-alpha.1` binary does not contain the SHf
-backend fix. Use alpha.2 or a later build from source commit `cc0c43f9`.
+backend fix. Alpha.2 contains the initial SHf backend foundation. Alpha.4
+publishes the current f37 plus SceneView fail-closed backend and this maintained
+profile as an experimental prerelease; repeated SHf and broader cross-game
+regression remain open.

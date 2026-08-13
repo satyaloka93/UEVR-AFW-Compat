@@ -1,0 +1,184 @@
+-- 90_weapon_attach.lua — standalone weapon-to-controller attachment for SHf.
+--
+-- Written from the UEVR Lua API only (UEVR_UObjectHook + MotionControllerState);
+-- it shares no code with the inherited profile's attachments library.
+--
+-- Design constraints, chosen deliberately after this profile's crash history:
+--   * NO full-object-array scans. get_first_object_by_class / get_objects_by_class
+--     walk the whole GUObjectArray and reproducibly crashed this build (lantern
+--     search). We only ever follow the pawn -> CurrentWeapon property chain.
+--   * Throttled: real work runs a few times a second, and only when the weapon
+--     actually changes -- never every frame.
+--   * Everything in pcall. A diagnostic/QoL script must never take the game down.
+--   * permanent=false by default. The UEVR docs warn that "Permanent Change" on
+--     the wrong component can launch the player out of the map. Only enable it
+--     if melee collision needs it (see PERMANENT below).
+--
+-- Tuning: offsets are per weapon class in OFFSETS. The script logs the weapon and
+-- mesh names it finds ([wattach] lines, warn level) so unknown weapons can be added.
+-- You can also fine-tune live via UEVR's UObjectHook UI ("Adjust") once attached.
+
+local HAND            = 1      -- 0 = left, 1 = right, 2 = HMD
+local PERMANENT       = true   -- needed for melee colliders to register hits
+local POLL_INTERVAL   = 0.25   -- seconds between checks
+local DEFAULT_LOC     = { x = 0.0, y = 0.0, z = 0.0 }
+local DEFAULT_ROT     = { x = 0.0, y = 0.0, z = 0.0 }  -- pitch/yaw/roll degrees
+
+-- Global nudge applied on top of every per-weapon offset. The calibration numbers
+-- were measured for a different attach mechanism, so a constant correction is
+-- expected. +x pushes the weapon FORWARD out of the hand, +z raises it.
+local NUDGE_LOC       = { x = 4.0, y = 0.0, z = 0.0 }
+
+-- Per-weapon calibration, keyed by class name (without the trailing _C).
+-- loc/rot values are calibration data lifted from the profile's
+-- data/attachments_parameters.json -- measured numbers for this game's weapons,
+-- not logic. 'child' is the mesh component that entry was measured against.
+-- rot is a UE rotator in degrees: x=Pitch, y=Yaw, z=Roll.
+local OFFSETS = {
+    ["BP_Wep_Melee_Axe"] = { child = "SK_Wep_Axe_000", loc = {x=-12.00, y=1.30, z=18.40}, rot = {x=-7.30, y=-90.00, z=-17.20} },
+    ["BP_Wep_Melee_Bat"] = { child = "SK_Wep_Bat_000", loc = {x=-5.90, y=3.50, z=0.00}, rot = {x=-9.20, y=-90.00, z=-23.60} },
+    ["BP_Wep_Melee_Claw"] = { child = "WeaponMesh", loc = {x=-3.50, y=-4.00, z=1.20}, rot = {x=0.00, y=-90.70, z=-1.20} },
+    ["BP_Wep_Melee_Crowbar"] = { child = "SK_Wep_Cowbar_000", loc = {x=-5.10, y=3.50, z=0.00}, rot = {x=-11.20, y=-90.00, z=-28.40} },
+    ["BP_Wep_Melee_Dagger"] = { child = "SK_Wep_Dagger_000", loc = {x=-6.20, y=3.00, z=0.00}, rot = {x=-19.20, y=-101.70, z=-19.10} },
+    ["BP_Wep_Melee_Hammer"] = { child = "SK_Wep_Hammer_001", loc = {x=-7.70, y=3.30, z=5.00}, rot = {x=0.10, y=-90.00, z=-17.40} },
+    ["BP_Wep_Melee_Kaiken"] = { child = "SK_Wep_Kaiken_000", loc = {x=-6.20, y=1.90, z=2.00}, rot = {x=-19.20, y=-102.30, z=-20.30} },
+    ["BP_Wep_Melee_KatanaAlter"] = { child = "SK_Wep_Katana_000_blade", loc = {x=-5.30, y=3.20, z=0.00}, rot = {x=-7.80, y=-90.00, z=-13.90} },
+    ["BP_Wep_Melee_Katana"] = { child = "SK_Wep_Katana_000_blade", loc = {x=-5.30, y=3.20, z=0.00}, rot = {x=-7.80, y=-90.00, z=-13.90} },
+    ["BP_Wep_Melee_Lantern"] = { child = "SK_Wep_Lantern_000", loc = {x=-6.00, y=2.10, z=-0.10}, rot = {x=-87.50, y=-90.00, z=-0.10} },
+    ["BP_Wep_Melee_Naginata"] = { child = "SK_Wep_Naginata_000", loc = {x=-2.50, y=5.60, z=-12.70}, rot = {x=-8.70, y=-91.00, z=-14.40} },
+    ["BP_Wep_Melee_Pipe"] = { child = "SK_Wep_Pipe_000", loc = {x=-5.90, y=3.10, z=0.00}, rot = {x=-9.10, y=-90.00, z=-14.00} },
+    ["BP_Wep_Melee_Pipe_Crazy"] = { child = "SK_Wep_Pipe_001", loc = {x=-5.80, y=3.20, z=0.00}, rot = {x=19.80, y=0.00, z=-7.50} },
+    ["BP_Wep_Melee_Sickle"] = { child = "SK_Wep_Sickle_000", loc = {x=-5.70, y=2.60, z=0.70}, rot = {x=-19.60, y=-99.70, z=-21.10} },
+}
+
+local function LOG(msg)
+    pcall(function() uevr.params.functions.log_warn("[wattach] " .. msg) end)
+end
+
+local lastWeaponAddr = nil
+local lastMeshAddr   = nil
+local timer          = 0.0
+
+local function addrOf(obj)
+    local ok, a = pcall(function() return obj:get_address() end)
+    return ok and a or nil
+end
+
+local function nameOf(obj)
+    local ok, n = pcall(function() return obj:get_full_name() end)
+    return ok and n or "?"
+end
+
+-- Find the visible weapon mesh: prefer a skeletal mesh among the root's children,
+-- falling back to the root itself. Avoids any global search.
+local function findWeaponMesh(weapon, wantedChild)
+    local mesh = nil
+    pcall(function()
+        local root = weapon.RootComponent
+        if root == nil then return end
+
+        local children = root.AttachChildren
+        if children ~= nil then
+            -- Pass 1: the exact component the calibration was measured against.
+            if wantedChild ~= nil then
+                for i in ipairs(children) do
+                    local c = children[i]
+                    if c ~= nil and nameOf(c):find(wantedChild, 1, true) then
+                        mesh = c
+                        return
+                    end
+                end
+            end
+            -- Pass 2: any plausible weapon mesh ("SK_Wep_<name>_000").
+            for i in ipairs(children) do
+                local c = children[i]
+                if c ~= nil then
+                    local n = nameOf(c)
+                    if n:find("SkeletalMeshComponent") or n:find("SK_Wep") then
+                        mesh = c
+                        return
+                    end
+                end
+            end
+        end
+        -- Fallbacks: an explicit Mesh property, else the root component itself.
+        if weapon.Mesh ~= nil then mesh = weapon.Mesh else mesh = root end
+    end)
+    return mesh
+end
+
+local function entryFor(name)
+    for key, v in pairs(OFFSETS) do
+        if name:find(key, 1, true) then return v end
+    end
+    return nil
+end
+
+local function attach(mesh, weaponName)
+    local ok, err = pcall(function()
+        local state = UEVR_UObjectHook.get_or_add_motion_controller_state(mesh)
+        if state == nil then
+            LOG("no motion controller state for " .. nameOf(mesh))
+            return
+        end
+        local e = entryFor(weaponName)
+        local bl = e and e.loc or DEFAULT_LOC
+        local br = e and e.rot or DEFAULT_ROT
+        -- set_location_offset / set_rotation_offset require real UEVR vector
+        -- usertypes; plain Lua tables raise "Invalid type". Vector3f is registered
+        -- with a (float,float,float) constructor, and a Vector3f passed as a
+        -- rotation is interpreted as euler degrees (pitch, yaw, roll).
+        local loc = Vector3f.new(bl.x + NUDGE_LOC.x, bl.y + NUDGE_LOC.y, bl.z + NUDGE_LOC.z)
+        local rot = Vector3f.new(br.x, br.y, br.z)
+        state:set_hand(HAND)
+        state:set_location_offset(loc)
+        state:set_rotation_offset(rot)
+        state:set_permanent(PERMANENT)
+        LOG("attached " .. nameOf(mesh) .. "  (weapon " .. weaponName .. ", hand " .. HAND .. ")")
+    end)
+    if not ok then LOG("attach failed: " .. tostring(err)) end
+end
+
+uevr.sdk.callbacks.on_pre_engine_tick(function(engine, delta)
+    if delta == nil or delta <= 0 or delta > 1.0 then return end
+    if not _G.SHF_SETTLED then return end  -- [settle gate] see 00_settle.lua
+    timer = timer + delta
+    if timer < POLL_INTERVAL then return end
+    timer = 0.0
+
+    pcall(function()
+        local pawn = uevr.api:get_local_pawn(0)
+        if pawn == nil or not UEVR_UObjectHook.exists(pawn) then
+            lastWeaponAddr, lastMeshAddr = nil, nil
+            return
+        end
+
+        local weapon = pawn.CurrentWeapon
+        if weapon == nil or not UEVR_UObjectHook.exists(weapon) then
+            if lastWeaponAddr ~= nil then LOG("weapon cleared") end
+            lastWeaponAddr, lastMeshAddr = nil, nil
+            return
+        end
+
+        local wAddr = addrOf(weapon)
+        if wAddr == lastWeaponAddr and lastMeshAddr ~= nil then return end  -- unchanged
+
+        local wName = nameOf(weapon)
+        LOG("weapon changed -> " .. wName)
+
+        local entry = entryFor(wName)
+        if entry == nil then LOG("no calibration entry for " .. wName .. " (using zero offsets)") end
+        local mesh = findWeaponMesh(weapon, entry and entry.child or nil)
+        if mesh == nil then
+            LOG("no mesh found on " .. wName)
+            lastWeaponAddr = wAddr
+            return
+        end
+
+        lastWeaponAddr = wAddr
+        lastMeshAddr = addrOf(mesh)
+        attach(mesh, wName)
+    end)
+end)
+
+LOG("loaded (hand=" .. HAND .. ", permanent=" .. tostring(PERMANENT) .. ")")

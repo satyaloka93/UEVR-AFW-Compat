@@ -15,6 +15,20 @@ shipping executable.
 Included runtime logs, caches, dumps, saves, local paths, MCP plugins and backup
 files have intentionally been excluded.
 
+## Silent Hill f maintained first-person/6DoF profile
+
+`SHf-Win64-Shipping/` is now the maintained sanitized snapshot of the rebuilt
+working profile, not the old alpha.2 script set. Install it into a clean profile
+directory so removed `main.lua`/`hands.lua` files cannot survive a merge. It
+includes the settle gate, minimal core initialization, IK/weapon-grip 6DoF
+wiring and required UObjectHook camera/property state. Read its
+`PROFILE_NOTES.md` for the cold-Previous-Frame-AFW startup state and current
+melee/firearm limitations.
+
+Alpha.4 publishes this maintained profile with its matching f37 plus SHf
+SceneView backend as an experimental prerelease. Decisive SceneView guard-path
+and broader cross-game regression remain open.
+
 ## TOW2 6DoF overlay
 
 `TheOuterWorlds2-Win64-Shipping-6DoF-overlay/` is deliberately an overlay rather
@@ -27,7 +41,8 @@ The overlay adds only the independently auditable dynamic attachment, optional
 native downstroke melee and framework-menu aim-capture scripts. It contains no
 address-derived UObjectHook state or diagnostics.
 
-The game-specific Lua/profile work derives from the Joey Hodge profile lineage
-and its bundled UEVR Lua utility libraries, with compatibility hardening recorded
-in the repository OKF. The backend and closed PDAFW runtime remain separate
-components with their own provenance and licensing requirements.
+The game-specific Lua/profile work derives from the lineages identified in each
+profile's notes, including Joey Hodge and letmein-vr, plus their bundled UEVR
+Lua utility libraries. Compatibility hardening is recorded in the repository
+OKF. The backend and closed PDAFW runtime remain separate components with their
+own provenance and licensing requirements.

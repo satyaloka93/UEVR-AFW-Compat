@@ -1,0 +1,13 @@
+{
+    "hide": true,
+    "hide_legacy": true,
+    "path": [
+        "Acknowledged Pawn",
+        "Components",
+        "NocePlayerBroochComponent NocePlayerBrooch",
+        "Properties",
+        "BroochMeshComponent"
+    ],
+    "properties": [],
+    "type": "properties"
+}

@@ -1,5 +1,0 @@
-Engine_r.AmbientOcclusionLevels=0
-Engine_r.MotionBlurQuality=0
-Engine_r.VolumetricCloud=1
-Renderer_r.Tonemapper.Sharpen=1.000000
-Renderer_r.TonemapperGamma=1.812000

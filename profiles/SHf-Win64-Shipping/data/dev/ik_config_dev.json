@@ -1,6 +1,6 @@
 {
     "uevr_ik_active": true,
-    "uevr_ik_active_profile": 2,
+    "uevr_ik_active_profile": 3,
     "uevr_ik_allow_stretch": true,
     "uevr_ik_allow_wrist_affects_elbow": true,
     "uevr_ik_animation_location_offset": [
@@ -8,7 +8,7 @@
         0.0,
         0.0
     ],
-    "uevr_ik_animation_mesh_combo": 8,
+    "uevr_ik_animation_mesh_combo": 1,
     "uevr_ik_animation_mesh_combo_show_children": false,
     "uevr_ik_animation_rotation_offset": [
         0.0,
@@ -48,7 +48,7 @@
     "uevr_ik_lower_twist_bone_yaw_3": 0.0,
     "uevr_ik_max_stretch_scale": 0.859000027179718,
     "uevr_ik_mesh": "Pawn.Mesh",
-    "uevr_ik_mesh_combo": 8,
+    "uevr_ik_mesh_combo": 1,
     "uevr_ik_mesh_combo_show_children": false,
     "uevr_ik_mesh_location_offset": [
         -7.804999828338623,

@@ -10,7 +10,7 @@
     "shf_melee_hitRadius": 45.0,
     "shf_melee_minSwingSpeed": 300.0,
     "shf_melee_weaponLength": 80.0,
-    "uevr_input_smoothTurnSpeed": 80,
+    "uevr_input_smoothTurnSpeed": 106,
     "uevr_input_snapAngle": 30,
     "uevr_input_useSnapTurn": false
 }

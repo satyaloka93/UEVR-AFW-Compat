@@ -42,6 +42,10 @@ local _atpcComp       = nil   -- ATPCCameraComponent; tick disabled during attac
 
 local _lanternActor    = nil   -- BP_Wep_Melee_Lantern_C live instance
 local _lanternSearched = false -- true once we've attempted the class scan this level
+-- [crash guard 2026-07-31] The class scan walks the whole GUObjectArray; doing that
+-- during level-load churn crashed the game after the 07-23 update (AV on FName text
+-- misread as an object pointer). Defer any scan until the level has settled.
+local _lanternLevelTime = os.time()
 local _LANTERN_CLASS = "BlueprintGeneratedClass /Game/Weapon/Melee/Lantern/BP_Wep_Melee_Lantern.BP_Wep_Melee_Lantern_C"
 
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -265,6 +269,7 @@ local function _checkIsCutscene()
     local ok, result = pcall(function()
         local target = cm.ViewTarget and cm.ViewTarget.Target
         if target == nil then return false end
+        if not UEVR_UObjectHook.exists(target) then return false end -- [crash guard] ViewTarget mid-swap
         local fullName = target:get_full_name()
         return fullName ~= nil and fullName:find("CineCameraActor") ~= nil
     end)
@@ -313,6 +318,7 @@ local function _checkIsExamine()
     local ok, result = pcall(function()
         local target = cm.ViewTarget and cm.ViewTarget.Target
         if target == nil then return false end
+        if not UEVR_UObjectHook.exists(target) then return false end -- [crash guard] ViewTarget mid-swap
         local fn = target:get_full_name()
         -- Plain CameraActor (not Cine) is the examine puzzle; CineCameraActors
         -- are cutscenes handled by _checkIsCutscene.
@@ -332,6 +338,7 @@ local function _getExamineActorFromCamera()
     local ok, actor = pcall(function()
         local target = cm.ViewTarget and cm.ViewTarget.Target
         if target == nil then return nil end
+        if not UEVR_UObjectHook.exists(target) then return nil end -- [crash guard] ViewTarget mid-swap
         local root = target.RootComponent
         if root == nil then return nil end
         local attachParent = root.AttachParent
@@ -486,11 +493,10 @@ local function _findLantern()
         _lanternActor = nil
     end
     if _lanternActor == nil then
-        if _lanternSearched then return nil end
-        _lanternSearched = true
-        local inst = uevr_lib.find_first_of(_LANTERN_CLASS, false)
-        if inst == nil or inst == false then return nil end
-        _lanternActor = inst
+        -- [crash guard 2026-07-31] find_first_of (full GUObjectArray walk) crashes on the
+        -- post-07-23 exe even when the level is settled (confirmed on lantern re-equip).
+        -- Scan disabled entirely; lantern cutscene visibility enforcement is cosmetic.
+        return nil
     end
     return _lanternActor
 end
@@ -736,6 +742,7 @@ end
 
 -- ─────────────────────────────────────────────────────────────────────────────
 uevr.sdk.callbacks.on_pre_engine_tick(function(engine, delta)
+    if not _G.SHF_SETTLED then return end  -- [settle gate] see 00_settle.lua
     _checkIKProfile()               -- weapon name -> IK profile; handles all transitions
     _refreshRefs()
     _hideWeaponCapsule()            -- keep weapon CapsuleComponent invisible at all times
@@ -777,6 +784,7 @@ local function _suppressTurnInPlace()
 end
 
 uevr.sdk.callbacks.on_post_engine_tick(function(engine, delta)
+    if not _G.SHF_SETTLED then return end  -- [settle gate] see 00_settle.lua
     if not _inSpecialMode then
         _suppressTurnInPlace()  -- prevent AnimBP turn-in-place root motion conflicts
     end
@@ -806,6 +814,7 @@ uevrUtils.registerPreLevelChangeCallback(function()
     _costumeCheckTimer         = 0
     _lanternActor    = nil
     _lanternSearched = false
+    _lanternLevelTime = os.time() -- [crash guard] restart settle timer
     uevr_lib.clearClassCache(_LANTERN_CLASS)
     if _fogChaseModeActive then
         input.setOverridePawnRotationMode(nil)
@@ -839,6 +848,7 @@ uevr.params.sdk.callbacks.on_script_reset(function()
     _ikMeshList          = nil
     _lanternActor    = nil
     _lanternSearched = false
+    _lanternLevelTime = os.time() -- [crash guard] restart settle timer
     uevr_lib.clearClassCache(_LANTERN_CLASS)
     -- Always re-enable UObjectHook on reset so camera attachment is restored
     pcall(function() UEVR_UObjectHook.set_disabled(false) end)

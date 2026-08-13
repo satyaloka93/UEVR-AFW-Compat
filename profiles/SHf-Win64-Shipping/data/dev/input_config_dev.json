@@ -30,7 +30,7 @@
         0.0,
         -14.229999542236328
     ],
-    "uevr_input_smoothTurnSpeed": 80,
+    "uevr_input_smoothTurnSpeed": 60,
     "uevr_input_snapAngle": 30,
     "uevr_input_useControllerDesiredRotation": 0,
     "uevr_input_useControllerRotationPitch": 1,

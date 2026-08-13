@@ -158,6 +158,7 @@ end
 
 -- Per-tick debug sphere update — independent of the swing gate
 uevr.sdk.callbacks.on_pre_engine_tick(function(engine, delta)
+    if not _G.SHF_SETTLED then return end  -- [settle gate] see 00_settle.lua
     if not _debugEnabled then
         if _debugSphereComp ~= nil then
             pcall(function() _debugSphereComp:SetHiddenInGame(true, false) end)
@@ -283,6 +284,7 @@ end)
 -- Per-tick: force pawn body mesh hidden during attack
 -- ─────────────────────────────────────────────────────────────────────────────
 uevr.sdk.callbacks.on_pre_engine_tick(function(engine, delta)
+    if not _G.SHF_SETTLED then return end  -- [settle gate] see 00_settle.lua
     if not _isAttacking then return end
     pcall(function()
         local p = uevrUtils.getValid(pawn)
@@ -312,6 +314,7 @@ end)
 -- Runs every engine tick; only does expensive work while actively swinging.
 -- ─────────────────────────────────────────────────────────────────────────────
 uevr.sdk.callbacks.on_pre_engine_tick(function(engine, delta)
+    if not _G.SHF_SETTLED then return end  -- [settle gate] see 00_settle.lua
     -- 1. Track right-controller velocity ─────────────────────────────────────
     local cpos = controllers.getControllerLocation(1)
     if cpos ~= nil then

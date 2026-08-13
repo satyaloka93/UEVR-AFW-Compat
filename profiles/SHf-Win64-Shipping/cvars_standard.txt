@@ -1,7 +1,2 @@
-Core_r.ScreenPercentage=0.000000
-Renderer_r.DefaultFeature.AmbientOcclusion=0
-Renderer_r.HZBOcclusion=0
-Renderer_r.Shadow.Virtual.Enable=0
-Renderer_r.TemporalAA.Upsampling=0
-Renderer_r.Upscale.Quality=0
-Renderer_r.Upscale.Softness=0.000000
+Renderer_r.SubsurfaceScattering=1
+Renderer_r.TemporalAA.Upsampling=1

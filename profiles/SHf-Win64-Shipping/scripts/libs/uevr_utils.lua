@@ -1701,7 +1701,7 @@ function M.initUEVR(UEVR, callbackFunc)
 				on_pre_engine_tick(engine, delta)
 			end
 
-			executeUEVRCallbacks("preEngineTick", engine, delta)
+			if _G.SHF_SETTLED then executeUEVRCallbacks("preEngineTick", engine, delta) end  -- [settle gate] see 00_settle.lua
 		-- end)
 		-- if success == false then
 		-- 	M.print("[on_pre_engine_tick] " .. response, LogLevel.Error)
@@ -1713,7 +1713,7 @@ function M.initUEVR(UEVR, callbackFunc)
 			on_post_engine_tick(engine, delta)
 		end
 
-		executeUEVRCallbacks("postEngineTick", engine, delta)
+		if _G.SHF_SETTLED then executeUEVRCallbacks("postEngineTick", engine, delta) end  -- [settle gate] see 00_settle.lua
 	end)
 
 	-- uevr.sdk.callbacks.on_lua_event(function(eventName, eventData)

@@ -34,7 +34,7 @@
             "Y": 0.0,
             "Z": -14.23
         },
-        "smoothTurnSpeed": 80,
+        "smoothTurnSpeed": 60,
         "snapAngle": 30,
         "useControllerDesiredRotation": 0,
         "useControllerRotationPitch": 1,
