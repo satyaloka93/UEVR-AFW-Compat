@@ -72,7 +72,11 @@ void ScriptContext::initialize(std::shared_ptr<sol::state> l) {
 
 ScriptContext::~ScriptContext() {
     std::scoped_lock _{m_mtx};
-    ScriptContext::log("ScriptContext destructor called");
+
+    // Do not call ScriptContext::log() here. During process shutdown the UEVR
+    // plugin API and its function table may already be destroyed, while this
+    // static context is still unwinding. Logging through API::get() at that
+    // point caused an exit-time access violation in the backend.
 
     // TODO: this probably does not support multiple states
     // Addendum: I decided this is not necessary, for now...

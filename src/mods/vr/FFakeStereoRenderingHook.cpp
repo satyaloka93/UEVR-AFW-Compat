@@ -162,6 +162,66 @@ bool shf_is_current_game() {
     return result;
 }
 
+bool has_module_backed_polymorphic_object(const void* object) {
+    if (object == nullptr || !is_readable_process_range((uintptr_t)object, sizeof(uintptr_t))) {
+        return false;
+    }
+
+    const auto vtable = *(uintptr_t*)object;
+    if (vtable == 0 || !is_readable_process_range(vtable, sizeof(uintptr_t)) ||
+        !utility::get_module_within((void*)vtable).has_value()) {
+        return false;
+    }
+
+    const auto first_function = *(uintptr_t*)vtable;
+    return first_function != 0 &&
+        is_readable_process_range(first_function, sizeof(uint8_t)) &&
+        utility::get_module_within((void*)first_function).has_value();
+}
+
+bool shf_try_publish_validated_scene_family_layout(sdk::FSceneViewFamily* view_family) {
+    // SHf's fingerprint-matched discovery cache and UE source layout agree on
+    // these slots. Never publish them from constants alone: validate every
+    // object and array shape against the live family first.
+    constexpr uintptr_t views_offset = 0x08;
+    constexpr uintptr_t render_target_offset = 0x30;
+    constexpr uintptr_t scene_interface_offset = 0x38;
+    constexpr size_t required_family_size = scene_interface_offset + sizeof(void*);
+
+    if (!is_readable_process_range((uintptr_t)view_family, required_family_size) ||
+        !has_module_backed_polymorphic_object(view_family)) {
+        return false;
+    }
+
+    const auto views = (sdk::TArray<sdk::FSceneView*>*)((uintptr_t)view_family + views_offset);
+    if (views->count < 0 || views->capacity < 0 || views->count > views->capacity || views->capacity > 16) {
+        return false;
+    }
+
+    if (views->count > 0 &&
+        (views->data == nullptr || !is_readable_process_range((uintptr_t)views->data, sizeof(void*) * (size_t)views->count))) {
+        return false;
+    }
+
+    const auto render_target = *(sdk::FRenderTarget**)((uintptr_t)view_family + render_target_offset);
+    const auto scene_interface = *(sdk::FSceneInterface**)((uintptr_t)view_family + scene_interface_offset);
+    if (!has_module_backed_polymorphic_object(render_target) ||
+        !has_module_backed_polymorphic_object(scene_interface)) {
+        return false;
+    }
+
+    sdk::FSceneViewFamily::set_validated_offsets(
+        (uint32_t)views_offset,
+        (uint32_t)render_target_offset,
+        (uint32_t)scene_interface_offset);
+    SPDLOG_INFO_ONCE(
+        "[SHf] Published validated FSceneViewFamily layout views=0x{:x} render_target=0x{:x} scene=0x{:x}",
+        views_offset,
+        render_target_offset,
+        scene_interface_offset);
+    return true;
+}
+
 std::optional<D3D12_RESOURCE_DESC> shf_try_get_d3d12_desc(FRHITexture2D* texture) {
     if (!shf_is_current_game() || texture == nullptr || g_framework == nullptr || !g_framework->is_dx12()) {
         return std::nullopt;
@@ -3160,8 +3220,15 @@ sdk::FSceneView* FFakeStereoRenderingHook::sceneview_constructor(sdk::FSceneView
 
     sdk::FSceneViewInitOptionsBase::update_offsets(init_options);
 
-    if (auto view_family = init_options->get_view_family(); view_family != nullptr) {
-        sdk::FSceneViewFamily::update_offsets(view_family, nullptr);
+    auto init_options_view_family = init_options->get_view_family();
+    if (shf_is_current_game()) {
+        if (!shf_try_publish_validated_scene_family_layout(init_options_view_family)) {
+            SPDLOG_WARN_ONCE(
+                "[SHf] FSceneViewFamily is not yet structurally valid; skipping scene-dependent remapping until a later constructor");
+            init_options_view_family = nullptr;
+        }
+    } else if (init_options_view_family != nullptr) {
+        sdk::FSceneViewFamily::update_offsets(init_options_view_family, nullptr);
     }
 
     const auto is_ue5 = g_hook->has_double_precision();
@@ -3169,10 +3236,15 @@ sdk::FSceneView* FFakeStereoRenderingHook::sceneview_constructor(sdk::FSceneView
 
     const auto init_options_scene_state = init_options->get_scene_state();
     const auto init_options_original_stereo_pass = init_options->get_stereo_pass();
-    const auto init_options_view_family = init_options->get_view_family();
-    const auto init_options_scene = init_options_view_family != nullptr
+    auto init_options_scene = init_options_view_family != nullptr
         ? init_options_view_family->get_scene_interface()
         : nullptr;
+
+    if (shf_is_current_game() && init_options_scene != nullptr &&
+        !has_module_backed_polymorphic_object(init_options_scene)) {
+        SPDLOG_WARN_ONCE("[SHf] Refusing an unvalidated FSceneInterface pointer from FSceneViewFamily");
+        init_options_scene = nullptr;
+    }
     bool restore_init_options_after_constructor = false;
 
     utility::ScopeGuard restore_init_options_guard{[&]() {
