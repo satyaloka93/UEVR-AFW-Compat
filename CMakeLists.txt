@@ -984,3 +984,5 @@ uevr_attach_full_renderdoc(uevr)
 unset(CMKR_TARGET)
 unset(CMKR_SOURCES)
 
+	"src/mods/DlssNeuralRendering.cpp"
+	"src/mods/DlssNeuralRendering.hpp"
