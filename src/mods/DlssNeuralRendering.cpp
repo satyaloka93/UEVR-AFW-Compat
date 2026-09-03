@@ -7,6 +7,8 @@
 
 #include <windows.h>
 #include <d3d12.h>
+#include <d3dcompiler.h>
+#pragma comment(lib, "d3dcompiler.lib")
 #include <imgui.h>
 #include <safetyhook.hpp>
 #include <spdlog/spdlog.h>
@@ -14,6 +16,7 @@
 #include <atomic>
 #include <new>
 #include <cmath>
+#include <iterator>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -21,6 +24,7 @@
 #include <utility>
 
 #include "Framework.hpp"
+#include "mods/VR.hpp"
 #include "DlssNeuralRendering.hpp"
 
 std::shared_ptr<DlssNeuralRendering>& DlssNeuralRendering::get() {
@@ -68,8 +72,15 @@ bool     g_present_faulted{false};
 // interval measures the thing that actually matters anyway.
 LARGE_INTEGER g_qpc_freq{};
 uint64_t g_last_present_qpc{0};
-double   g_ms_sum[2]{};
-uint64_t g_ms_n[2]{};
+// ROLLING, not cumulative. Cumulative averages let the two buckets be measured minutes apart, so a
+// scene that quietly got cheaper looked like the box improving: box ON fell 19.45 -> 17.08 ms while
+// box OFF sat unchanged at 21.00 from early sampling. A fixed window keeps both buckets recent and
+// comparable, at the cost of noisier numbers -- which is the honest trade.
+constexpr int kAbWindow = 600;
+double   g_ms_ring[2][kAbWindow]{};
+int      g_ms_head[2]{};
+uint64_t g_ms_n[2]{};          // total ever seen, for the sample count shown
+double   g_ms_sum[2]{};        // sum of what is currently IN the window
 bool     g_last_fov_state{false};
 int      g_ab_warmup{0};
 
@@ -99,11 +110,13 @@ void accumulate_frame_time(bool foveating) {
         if (g_ab_warmup > 0) --g_ab_warmup;
         else if (ms > 0.5 && ms < 200.0 && nr_running) {   // ignore hitches, stalls, NR-off
             const int i = foveating ? 1 : 0;
-            g_ms_sum[i] += ms;
+            g_ms_sum[i] += ms - g_ms_ring[i][g_ms_head[i]];   // evict the oldest
+            g_ms_ring[i][g_ms_head[i]] = ms;
+            g_ms_head[i] = (g_ms_head[i] + 1) % kAbWindow;
             ++g_ms_n[i];
             if (((g_ms_n[0] + g_ms_n[1]) % 900) == 0 && g_ms_n[0] && g_ms_n[1]) {
-                const double off = g_ms_sum[0] / (double)g_ms_n[0];
-                const double on = g_ms_sum[1] / (double)g_ms_n[1];
+                const double off = g_ms_sum[0] / (double)std::min<uint64_t>(g_ms_n[0], kAbWindow);
+                const double on = g_ms_sum[1] / (double)std::min<uint64_t>(g_ms_n[1], kAbWindow);
                 spdlog::info("[DLSSNR-FOV] frame time -- box OFF {:.2f} ms ({} frames), "
                              "box ON {:.2f} ms ({} frames), box saves {:.2f} ms ({:+.1f}%)",
                              off, g_ms_n[0], on, g_ms_n[1], off - on,
@@ -202,6 +215,7 @@ constexpr KeyMap kAddonKeys[] = {
     {"NR Preset",                    "NRPreset"},
     {"NR Style",                     "NRStyle"},
     {"NR Intensity",                 "NRIntensity"},
+    {"Overall Intensity",            "NRIntensity"},   // renamed in the 4.7 build
     {"Local Tone Strength",          "NRLocalTone"},
     {"Local Structure Strength",     "NRLocalStructure"},
     {"Skin Structure Strength",      "NRSkinStructure"},
@@ -213,6 +227,10 @@ constexpr KeyMap kAddonKeys[] = {
     {"Scene Paper-White Scale",      "NRPaperWhiteScale"},
     {"HDR Transfer Strength",        "NRTransferStrength"},
     {"Color Strength",               "NRColorStrength"},
+    {"Diffuse White (nits)",         "NRDiffuseWhiteNits"},
+    {"Global Tone Intensity",        "NRGlobalTone"},
+    {"NR Toggle Key",                "NRToggleKey"},
+    {"NR Screenshot Key",            "NRScreenshotKey"},
 };
 
 bool     g_config_dirty{false};
@@ -357,8 +375,15 @@ void note_slot(int slot) {
 
 void imgui_noop() {}
 template <int I> uint64_t imgui_stub(void* a1, void*, void*, void*) {
-    if (!g_slot_seen[I < kSlots ? I : 0] && readable_string(a1, 96))
-        spdlog::info("[DLSSNR] addon overlay slot {} label \"{}\"", I, static_cast<const char*>(a1));
+    // EVERY unimplemented slot announces itself, labelled or not. Logging only the ones whose first
+    // argument happened to be a readable string meant a stub that faulted the overlay left no trace
+    // at all -- the last line before the fault is the one that names the culprit.
+    if (!g_slot_seen[I < kSlots ? I : 0]) {
+        if (readable_string(a1, 96))
+            spdlog::info("[DLSSNR] addon overlay slot {} label \"{}\"", I, static_cast<const char*>(a1));
+        else
+            spdlog::info("[DLSSNR] addon overlay slot {} (no readable label)", I);
+    }
     note_slot(I);
     return 0;                                  // "unchanged" -- a stub claiming a change makes the
 }                                              // addon commit and rebuild its feature every frame
@@ -421,22 +446,190 @@ template <int... I> void fill_stubs(std::integer_sequence<int, I...>) {
     ((g_imgui_table[I] = reinterpret_cast<void*>(&imgui_stub<I>)), ...);
 }
 
-void build_imgui_table() {
-    for (auto& s : g_imgui_table) s = reinterpret_cast<void*>(&imgui_noop);
-    fill_stubs(std::make_integer_sequence<int, kSlots>{});
-    g_imgui_table[80]  = reinterpret_cast<void*>(&impl_separator);
-    g_imgui_table[103] = reinterpret_cast<void*>(&impl_text_unformatted);
-    g_imgui_table[104] = reinterpret_cast<void*>(&impl_textv);
-    g_imgui_table[111] = reinterpret_cast<void*>(&impl_button);
-    g_imgui_table[115] = reinterpret_cast<void*>(&impl_checkbox);
-    g_imgui_table[129] = reinterpret_cast<void*>(&impl_combo);
-    g_imgui_table[144] = reinterpret_cast<void*>(&impl_slider);
+// A C++ stub returning uint64_t sets RAX and leaves XMM0 as whatever the last call left there.
+// ImGui's layout queries -- GetContentRegionAvail, GetCursorPos, CalcTextSize -- return ImVec2 in
+// XMM0, so those slots received garbage dimensions, and the 4.7 addon faulted on slot 404 the first
+// time it asked one. Six bytes of machine code zero BOTH return registers, which no C++ signature
+// can do:
+//
+//     xor eax, eax        31 C0        integers and bools -> 0 / false ("unchanged")
+//     xorps xmm0, xmm0    0F 57 C0     floats and ImVec2  -> 0 / (0,0)
+//     ret                 C3
+//
+// Structs larger than eight bytes still come back through a hidden pointer we do not write, but
+// nothing observed uses one.
+volatile uint32_t g_last_imgui_slot = 0xFFFFFFFFu;
+
+// One thunk PER SLOT, so a fault names the function that caused it -- the shared stub was safe but
+// anonymous, and losing that identity is why the last two runs could not be diagnosed. Each records
+// its own index and then zeroes BOTH return registers, which no C++ signature can do:
+//
+//   mov  rax, &g_last_imgui_slot     48 B8 <imm64>
+//   mov  dword ptr [rax], slot       C7 00 <imm32>
+//   xor  eax, eax                    31 C0      integers/bools -> 0
+//   xorps xmm0, xmm0                 0F 57 C0   floats/ImVec2  -> 0
+//   ret                              C3
+//
+// No call, no stack use, and RAX is volatile, so nothing needs preserving.
+constexpr size_t kSlotThunkSize = 22;
+void* make_slot_thunks(size_t count) {
+    auto* base = static_cast<uint8_t*>(VirtualAlloc(nullptr, kSlotThunkSize * count,
+                                                    MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE));
+    if (base == nullptr) return nullptr;
+    const auto sink = reinterpret_cast<uint64_t>(&g_last_imgui_slot);
+    for (size_t i = 0; i < count; ++i) {
+        uint8_t* t = base + i * kSlotThunkSize;
+        t[0] = 0x48; t[1] = 0xB8; memcpy(t + 2, &sink, 8);
+        t[10] = 0xC7; t[11] = 0x00; const uint32_t idx = static_cast<uint32_t>(i);
+        memcpy(t + 12, &idx, 4);
+        t[16] = 0x31; t[17] = 0xC0;
+        t[18] = 0x0F; t[19] = 0x57; t[20] = 0xC0;
+        t[21] = 0xC3;
+    }
+    DWORD old = 0;
+    if (!VirtualProtect(base, kSlotThunkSize * count, PAGE_EXECUTE_READ, &old)) return nullptr;
+    FlushInstructionCache(GetCurrentProcess(), base, kSlotThunkSize * count);
+    return base;
 }
 
-// ---- fake ReShade objects -----------------------------------------------------------------------
-// The addon stores the device pointer at init_device and never calls a method on it, and it called
-// nothing at all on the queue or swapchain either -- verified with 128-slot recording vtables. So
-// these exist only to be identities; there is no ReShade object model to reproduce.
+void* make_safe_stub() {
+    static uint8_t* stub = nullptr;
+    if (stub != nullptr) return stub;
+    static const uint8_t code[] = { 0x31, 0xC0, 0x0F, 0x57, 0xC0, 0xC3 };
+    stub = static_cast<uint8_t*>(VirtualAlloc(nullptr, sizeof(code), MEM_COMMIT | MEM_RESERVE,
+                                              PAGE_READWRITE));
+    if (stub == nullptr) return nullptr;
+    memcpy(stub, code, sizeof(code));
+    DWORD old = 0;
+    if (!VirtualProtect(stub, sizeof(code), PAGE_EXECUTE_READ, &old)) return nullptr;
+    FlushInstructionCache(GetCurrentProcess(), stub, sizeof(code));
+    return stub;
+}
+
+// The 4.7 addon draws a CUSTOM TOGGLE WIDGET, which is what the faults were about: it asks for the
+// window draw list (12), gets our zero, and then draws into that null pointer with
+// ImDrawList_AddCircleFilled (389) and ImDrawList_PathArcTo (404). Everything below either returns
+// a real object where zero is not a valid answer, or forwards a draw call to the list ImGui owns.
+//
+// Indices were PARSED from ReShade's imgui_function_table_19250.hpp, not read off a summary of it.
+// Two earlier attempts used summarised indices that were wrong -- Separator placed at 96, which is
+// really PushID3, and GetKeyName at 405, which is really ImDrawList_PathArcToFast -- and broke a
+// table that had been correct. The measured original layout IS 19250; nothing needed remapping.
+ImDrawList* impl_get_window_draw_list()      { return ImGui::GetWindowDrawList(); }
+ImVec2 impl_get_cursor_screen_pos()          { return ImGui::GetCursorScreenPos(); }
+float  impl_get_frame_height()               { return ImGui::GetFrameHeight(); }
+ImU32  impl_get_color_u32(ImGuiCol i, float a){ return ImGui::GetColorU32(i, a); }
+void   impl_same_line(float off, float sp)   { ImGui::SameLine(off, sp); }
+bool   impl_invisible_button(const char* id, const ImVec2& sz, ImGuiButtonFlags f) {
+    return readable_string(id, 128) ? ImGui::InvisibleButton(id, sz, f) : false;
+}
+bool   impl_is_item_hovered(ImGuiHoveredFlags f) { return ImGui::IsItemHovered(f); }
+bool   impl_is_item_active()                     { return ImGui::IsItemActive(); }
+
+void dl_add_line(ImDrawList* d, const ImVec2& a, const ImVec2& b, ImU32 c, float t) { if (d) d->AddLine(a, b, c, t); }
+void dl_add_rect(ImDrawList* d, const ImVec2& a, const ImVec2& b, ImU32 c, float r, ImDrawFlags f, float t) { if (d) d->AddRect(a, b, c, r, f, t); }
+void dl_add_rect_filled(ImDrawList* d, const ImVec2& a, const ImVec2& b, ImU32 c, float r, ImDrawFlags f) { if (d) d->AddRectFilled(a, b, c, r, f); }
+void dl_add_tri_filled(ImDrawList* d, const ImVec2& a, const ImVec2& b, const ImVec2& c, ImU32 col) { if (d) d->AddTriangleFilled(a, b, c, col); }
+void dl_add_circle(ImDrawList* d, const ImVec2& c, float r, ImU32 col, int seg, float t) { if (d) d->AddCircle(c, r, col, seg, t); }
+void dl_add_circle_filled(ImDrawList* d, const ImVec2& c, float r, ImU32 col, int seg) { if (d) d->AddCircleFilled(c, r, col, seg); }
+void dl_add_text(ImDrawList* d, const ImVec2& p, ImU32 c, const char* b, const char* e) { if (d && readable_string(b, 512)) d->AddText(p, c, b, e); }
+void dl_path_arc_to(ImDrawList* d, const ImVec2& c, float r, float a0, float a1, int seg) { if (d) d->PathArcTo(c, r, a0, a1, seg); }
+void dl_path_arc_to_fast(ImDrawList* d, const ImVec2& c, float r, int a0, int a1) { if (d) d->PathArcToFast(c, r, a0, a1); }
+
+// Real signatures for the members 19250 needs that a zeroed stub cannot fake.
+ImVec2 impl_content_region_avail() { return ImGui::GetContentRegionAvail(); }
+void impl_push_id_str(const char* id)                 { ImGui::PushID(readable_string(id, 128) ? id : "?"); }
+void impl_push_id_range(const char* b, const char* e) { if (readable_string(b, 128)) ImGui::PushID(b, e); else ImGui::PushID("?"); }
+void impl_push_id_ptr(const void* p)                  { ImGui::PushID(p); }
+void impl_push_id_int(int i)                          { ImGui::PushID(i); }
+void impl_pop_id()                                    { ImGui::PopID(); }
+
+// 4.7 added key-binding widgets for NRToggleKey and NRScreenshotKey, which put the addon in the
+// keyboard block of the table (400-409). Most of those return bool or int, where a zeroed thunk is
+// a correct answer -- but GetKeyName returns a POINTER, and answering a pointer request with zero
+// hands the addon a null string to print. Forwarding to the real one gives it something valid.
+const char* impl_get_key_name(int key) { return ImGui::GetKeyName((ImGuiKey)key); }
+
+// ReShade publishes one table layout PER IMGUI VERSION, and the addon names the one it wants. We
+// recorded that argument from the beginning and never used it, handing back a single measured
+// layout regardless -- so a 19250 addon called GetContentRegionAvail (slot 80) and got Separator,
+// which returns nothing in XMM0 and faulted the page on garbage dimensions.
+//
+// The legacy column is the layout measured from the older addon; the 19250 column is read off
+// ReShade's own imgui_function_table_19250.hpp, so it is correct by construction rather than by
+// observation.
+// All parsed from the header. 421 members total.
+struct Slot { int i; void* fn; };
+
+void build_imgui_table(uint32_t version) {
+    const size_t n = std::size(g_imgui_table);
+    if (auto* thunks = static_cast<uint8_t*>(make_slot_thunks(n))) {
+        for (size_t i = 0; i < n; ++i) g_imgui_table[i] = thunks + i * kSlotThunkSize;
+    } else if (void* safe = make_safe_stub()) {
+        for (auto& s : g_imgui_table) s = safe;
+    } else {
+        spdlog::error("[DLSSNR] could not allocate the safe ImGui stub; falling back");
+        for (auto& s : g_imgui_table) s = reinterpret_cast<void*>(&imgui_noop);
+        fill_stubs(std::make_integer_sequence<int, kSlots>{});
+    }
+    const Slot kMap[] = {
+        {  12, reinterpret_cast<void*>(&impl_get_window_draw_list) },
+        {  66, reinterpret_cast<void*>(&impl_get_color_u32) },
+        {  70, reinterpret_cast<void*>(&impl_get_cursor_screen_pos) },
+        {  72, reinterpret_cast<void*>(&impl_content_region_avail) },
+        {  80, reinterpret_cast<void*>(&impl_separator) },
+        {  81, reinterpret_cast<void*>(&impl_same_line) },
+        {  92, reinterpret_cast<void*>(&impl_get_frame_height) },
+        {  94, reinterpret_cast<void*>(&impl_push_id_str) },
+        {  95, reinterpret_cast<void*>(&impl_push_id_range) },
+        {  96, reinterpret_cast<void*>(&impl_push_id_ptr) },
+        {  97, reinterpret_cast<void*>(&impl_push_id_int) },
+        {  98, reinterpret_cast<void*>(&impl_pop_id) },
+        { 103, reinterpret_cast<void*>(&impl_text_unformatted) },
+        { 104, reinterpret_cast<void*>(&impl_textv) },
+        { 111, reinterpret_cast<void*>(&impl_button) },
+        { 113, reinterpret_cast<void*>(&impl_invisible_button) },
+        { 115, reinterpret_cast<void*>(&impl_checkbox) },
+        { 129, reinterpret_cast<void*>(&impl_combo) },
+        { 130, reinterpret_cast<void*>(&impl_combo) },
+        { 144, reinterpret_cast<void*>(&impl_slider) },
+        { 287, reinterpret_cast<void*>(&impl_is_item_hovered) },
+        { 288, reinterpret_cast<void*>(&impl_is_item_active) },
+        { 324, reinterpret_cast<void*>(&impl_get_key_name) },
+        { 380, reinterpret_cast<void*>(&dl_add_line) },
+        { 381, reinterpret_cast<void*>(&dl_add_rect) },
+        { 382, reinterpret_cast<void*>(&dl_add_rect_filled) },
+        { 387, reinterpret_cast<void*>(&dl_add_tri_filled) },
+        { 388, reinterpret_cast<void*>(&dl_add_circle) },
+        { 389, reinterpret_cast<void*>(&dl_add_circle_filled) },
+        { 394, reinterpret_cast<void*>(&dl_add_text) },
+        { 404, reinterpret_cast<void*>(&dl_path_arc_to) },
+        { 405, reinterpret_cast<void*>(&dl_path_arc_to_fast) },
+    };
+    for (const auto& e : kMap)
+        if (e.i >= 0 && e.i < (int)std::size(g_imgui_table)) g_imgui_table[e.i] = e.fn;
+    spdlog::info("[DLSSNR] ImGui table built for version {} ({} members mapped)", version,
+                 (int)std::size(kMap));
+}
+
+// ---- ReShade object model ----------------------------------------------------------------------
+//
+// The first version presented objects whose every vtable slot returned the same native pointer.
+// That was enough for addon 4.1.5, which the disassembly showed never called a method on them. 4.7
+// does: it installs a D3D12 queue submission tracker so its workset pool can recycle, and to do
+// that it needs a queue that answers correctly. With the uniform fakes, get_device() on the queue
+// returned the QUEUE, the tracker never installed, all four workset generations went busy and the
+// addon logged "NR workset pool exhausted; preserving game output" -- neural rendering silently
+// stopped contributing while everything else looked healthy.
+//
+// The layouts below are PARSED from ReShade's own public headers, not guessed:
+//
+//   api_object    0 get_native, 1 get_private_data, 2 set_private_data
+//   device_object : api_object, then 3 get_device
+//   device        : api_object, then 3 get_api, 4 check_capability, ...
+//   command_queue : device_object, then 4 get_type, 5 wait_idle, ...
+//   swapchain     : device_object, then 4 get_back_buffer, ...
+//   effect_runtime: device_object, then 4 get_back_buffer, ...
 constexpr int kVt = 128;
 void* g_dev_vt[kVt]; void* g_queue_vt[kVt]; void* g_swap_vt[kVt]; void* g_runtime_vt[kVt];
 void* g_fake_dev[2]{g_dev_vt, nullptr};
@@ -445,15 +638,73 @@ void* g_fake_swap[2]{g_swap_vt, nullptr};
 void* g_fake_runtime[2]{g_runtime_vt, nullptr};
 uint64_t g_native_dev{0}, g_native_queue{0}, g_native_swap{0};
 
-template <int I> uint64_t __fastcall dev_slot(void*)   { return g_native_dev; }
-template <int I> uint64_t __fastcall queue_slot(void*) { return g_native_queue; }
-template <int I> uint64_t __fastcall swap_slot(void*)  { return g_native_swap; }
-template <int I> uint64_t __fastcall rt_slot(void*)    { return 0; }
-template <int... I> void fill_vts(std::integer_sequence<int, I...>) {
-    ((g_dev_vt[I]     = reinterpret_cast<void*>(&dev_slot<I>)), ...);
-    ((g_queue_vt[I]   = reinterpret_cast<void*>(&queue_slot<I>)), ...);
-    ((g_swap_vt[I]    = reinterpret_cast<void*>(&swap_slot<I>)), ...);
-    ((g_runtime_vt[I] = reinterpret_cast<void*>(&rt_slot<I>)), ...);
+// Addons attach per-object state through private data, and answering with garbage is worse than
+// answering with nothing. A small table is enough: the addon keeps a handful of entries.
+struct PrivateSlot { void* obj; uint8_t guid[16]; uint64_t value; bool used; };
+PrivateSlot g_private[32];
+
+uint64_t __fastcall obj_get_native_dev(void*)   { return g_native_dev; }
+uint64_t __fastcall obj_get_native_queue(void*) { return g_native_queue; }
+uint64_t __fastcall obj_get_native_swap(void*)  { return g_native_swap; }
+
+void __fastcall obj_get_private(void* self, const uint8_t* guid, uint64_t* out) {
+    if (out == nullptr) return;
+    *out = 0;
+    if (guid == nullptr) return;
+    for (const auto& e : g_private)
+        if (e.used && e.obj == self && memcmp(e.guid, guid, 16) == 0) { *out = e.value; return; }
+}
+void __fastcall obj_set_private(void* self, const uint8_t* guid, uint64_t value) {
+    if (guid == nullptr) return;
+    for (auto& e : g_private)
+        if (e.used && e.obj == self && memcmp(e.guid, guid, 16) == 0) { e.value = value; return; }
+    for (auto& e : g_private)
+        if (!e.used) { e.used = true; e.obj = self; memcpy(e.guid, guid, 16); e.value = value; return; }
+}
+
+// The one that mattered: a device_object must hand back a DEVICE, not itself.
+void* __fastcall obj_get_device(void*) { return g_fake_dev; }
+
+uint32_t __fastcall dev_get_api(void*)        { return 0xc000; }   // device_api::d3d12
+uint32_t __fastcall queue_get_type(void*)     { return 0x1; }      // command_queue_type::graphics
+void     __fastcall queue_wait_idle(void*)    {}
+uint64_t __fastcall queue_timestamp_freq(void*) { return 0; }
+uint32_t __fastcall swap_backbuffer_count(void*) { return 1; }
+uint32_t __fastcall swap_current_index(void*)    { return 0; }
+
+// Anything not modelled returns zero in both RAX and XMM0, so a member returning a struct or a
+// float cannot corrupt the caller's frame -- the same reason the ImGui stubs are hand-assembled.
+void* make_safe_stub();
+
+template <int... I> void fill_vt(void** vt, void* safe, std::integer_sequence<int, I...>) {
+    ((vt[I] = safe), ...);
+}
+
+void fill_vts(...) {
+    void* safe = make_safe_stub();
+    for (int i = 0; i < kVt; ++i) {
+        g_dev_vt[i] = g_queue_vt[i] = g_swap_vt[i] = g_runtime_vt[i] = safe;
+    }
+    // api_object, shared by all four
+    g_dev_vt[0]     = reinterpret_cast<void*>(&obj_get_native_dev);
+    g_queue_vt[0]   = reinterpret_cast<void*>(&obj_get_native_queue);
+    g_swap_vt[0]    = reinterpret_cast<void*>(&obj_get_native_swap);
+    g_runtime_vt[0] = reinterpret_cast<void*>(&obj_get_native_swap);
+    for (void** vt : { g_dev_vt, g_queue_vt, g_swap_vt, g_runtime_vt }) {
+        vt[1] = reinterpret_cast<void*>(&obj_get_private);
+        vt[2] = reinterpret_cast<void*>(&obj_set_private);
+    }
+    // device_object::get_device on everything except the device itself
+    for (void** vt : { g_queue_vt, g_swap_vt, g_runtime_vt })
+        vt[3] = reinterpret_cast<void*>(&obj_get_device);
+
+    g_dev_vt[3]   = reinterpret_cast<void*>(&dev_get_api);
+    g_queue_vt[4] = reinterpret_cast<void*>(&queue_get_type);
+    g_queue_vt[5] = reinterpret_cast<void*>(&queue_wait_idle);
+    g_queue_vt[12] = reinterpret_cast<void*>(&queue_timestamp_freq);
+    g_swap_vt[5]  = reinterpret_cast<void*>(&swap_backbuffer_count);
+    g_swap_vt[6]  = reinterpret_cast<void*>(&swap_current_index);
+    spdlog::info("[DLSSNR] ReShade object model built from the published vtable layouts");
 }
 
 using PresentFn = void (*)(void*, void*, const int32_t*, const int32_t*, uint32_t, const void*);
@@ -466,6 +717,7 @@ bool invoke_present_guarded(PresentFn fn) {
     __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
 }
 bool invoke_overlay_guarded(void (*fn)(void*)) {
+    g_last_imgui_slot = 0xFFFFFFFFu;
     __try { fn(g_fake_runtime); return true; }
     __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
 }
@@ -591,6 +843,7 @@ Rect read_subrect(const void* params, const char* plane) {
 
 std::atomic<uint64_t> g_nr_evals{0};
 std::atomic<uint64_t> g_nr_ok{0};
+std::atomic<uint32_t> g_built_in_w{0}, g_built_in_h{0}, g_built_out_w{0}, g_built_out_h{0};
 std::atomic<uint64_t> g_nr_bad{0};
 std::atomic<uint32_t> g_nr_box_w{0}, g_nr_box_h{0};
 std::atomic<uint32_t> g_nr_box_x{0}, g_nr_box_y{0};
@@ -632,64 +885,150 @@ std::atomic<uint64_t> g_eval_parity{0};
 std::atomic<bool> g_last_first_eye{true};
 
 
-void apply_foveal_box(void* params, float fraction, float convergence_pct, bool swap_eyes) {
-    if (fraction >= 0.999f) return;
-    const uint64_t parity = g_eval_parity.fetch_add(1, std::memory_order_relaxed);
-    const bool even = (parity & 1ull) == 0ull;
-    const bool first_eye = swap_eyes ? !even : even;
-    g_last_first_eye.store(first_eye, std::memory_order_relaxed);
-    g_eval_in_frame.fetch_add(1, std::memory_order_relaxed);   // kept for the diagnostic only
-    const float signed_pct = first_eye ? convergence_pct : -convergence_pct;
+// NASAL-OPEN SLAB, ported from the CyberpunkVR port's solution to the same seam.
+//
+// A centred box has four visible edges. A full-height slab anchored to the NASAL side has one: top
+// and bottom reach the image border, and the nasal edge reaches the binocular centre where the other
+// eye is treated anyway. The single remaining edge lies in the temporal periphery -- the monocular
+// crescent only one eye sees -- so there is no binocular rivalry and no seam in the region actually
+// being looked at.
+//
+// Left eye keeps the RIGHT portion, right eye the LEFT, because the nose is on the inner side of
+// each eye's field. Convergence is meaningless here and is ignored: the slab already spans the whole
+// overlap, which is what the convergence offset was trying to achieve for a box.
+//
+// It buys less than a box of the same fraction -- 65% of the width against 12% of the area at 0.35
+// -- and that is the price of it being seamless where it counts.
+// Nasal anchoring needs to know which eye it is, and in UEVR nothing does. Both eyes share one
+// Colour/Output pair with identical subrects, so parity is the only available signal -- and parity
+// has already drifted once in this file. The CyberpunkVR port can mirror safely because it
+// attributes MAIN vs VRCAM from the outer scope; we cannot.
+//
+// A CENTRED full-height slab needs no attribution: both eyes get the identical region, so the two
+// edges land in the same place in both and there is nothing for the eyes to disagree about. Two
+// peripheral edges instead of one, but neither can produce binocular rivalry, which is what makes
+// a boundary conspicuous.
+// One region routine for both presets.
+//
+// THE OUTPUT PLANE IS THE REFERENCE and every other plane is derived from it as a FRACTION, never
+// aligned independently. Aligning each plane to 8 on its own broke upscaling mode: with colour at
+// 848x864 against a 2544x2592 output the 3x relationship stopped holding (302 against 904/3), the
+// snippet rejected the evaluation as an "Invalid Color/Output rect configuration" -- silently, as
+// it always does -- and neural rendering disappeared along with the visible region.
+//
+// CONVERGENCE IS MIRRORED PER EYE and applies to both presets. A region at identical coordinates in
+// both eyes covers a DIFFERENT piece of the world in each, so it reads as one box per eye rather
+// than a single fused one. That is not a stereo-consistency win; it is the thing convergence exists
+// to correct, and dropping it from the centre box was a regression.
+void apply_region(void* params, float coverage, float height_frac, float convergence_pct,
+                  bool nasal, bool swap_eyes) {
+    const Rect out = read_subrect(params, "Output");
+    if (!out.valid) return;
 
+    // UPSCALING MODE: colour arrives smaller than output (848x864 into 2544x2592). Rewriting the
+    // subrects across planes of different scales was rejected by the snippet as an invalid
+    // Color/Output configuration -- silently -- which switched neural rendering off entirely.
+    // Leaving the region alone keeps NR working unfoveated, which is strictly better than
+    // foveation that costs you the effect.
+    const Rect col = read_subrect(params, "Color");
+    if (col.valid && (col.w != out.w || col.h != out.h)) {
+        static std::atomic<bool> s_said{false};
+        bool e = false;
+        if (s_said.compare_exchange_strong(e, true))
+            spdlog::warn("[DLSSNR-FOV] upscaling active (colour {}x{} -> output {}x{}); leaving the "
+                         "region alone so NR keeps working", col.w, col.h, out.w, out.h);
+        return;
+    }
+
+    // ASK UEVR WHICH EYE THIS IS. Nasal anchoring is mirrored, so getting the eye backwards puts
+    // the untreated strip over the middle of the fused image instead of the temples -- which is what
+    // "everything OUTSIDE the box was rendered" was. Deriving it from evaluation parity meant the
+    // phase could start on either eye, so a user had to flip a Swap toggle by trial per game. That
+    // is not something anyone should have to discover.
+    //
+    // In alternate-frame rendering UEVR already knows: m_frame_count % 2 against the interval it
+    // established. This title evaluates NR once per frame on a single-eye 2544x2592 target, which
+    // is exactly that mode. Parity remains only as a fallback if AFR is not in use.
+    const uint64_t parity = g_eval_parity.fetch_add(1, std::memory_order_relaxed);
+    bool left_eye;
+    {
+        auto& vr = VR::get();
+        if (vr != nullptr && vr->is_using_afr()) {
+            left_eye = vr->is_left_eye();
+            static std::atomic<bool> s_said{false};
+            bool e = false;
+            if (s_said.compare_exchange_strong(e, true))
+                spdlog::info("[DLSSNR-FOV] eye identity from UEVR (alternate-frame rendering)");
+        } else {
+            // TOW2 is NOT alternate-frame (RenderingMethod 0), so is_left_eye() means nothing here
+            // and skipping outright removed the region entirely -- a worse outcome than the thing it
+            // was guarding against. Both eyes are evaluated within one frame, so their order alone
+            // identifies them; only the starting phase is unknown, which is what Swap eyes settles
+            // once per game.
+            left_eye = (parity & 1ull) == 0ull;
+            static std::atomic<bool> s_said{false};
+            bool e = false;
+            if (s_said.compare_exchange_strong(e, true))
+                spdlog::info("[DLSSNR-FOV] not alternate-frame rendering; eye identity from "
+                             "evaluation order -- use Swap eyes if the untreated area is central");
+        }
+    }
+    if (swap_eyes) left_eye = !left_eye;
+    g_last_first_eye.store(left_eye, std::memory_order_relaxed);
+
+    uint32_t w = align8_down(static_cast<uint32_t>(out.w * coverage));
+    uint32_t h = align8_down(static_cast<uint32_t>(out.h * height_frac));
+    if (w < 64 || w > out.w || h < 64 || h > out.h) return;
+
+    // Horizontal placement: nasal-anchored, or centred and converged toward the nose.
+    int x;
+    if (nasal) {
+        x = left_eye ? static_cast<int>(out.w - w) : 0;
+    } else {
+        const int shift = static_cast<int>((left_eye ? convergence_pct : -convergence_pct) * out.w);
+        x = static_cast<int>(align8_down((out.w - w) / 2)) + shift;
+        x = std::max<int>(0, std::min<int>(x, static_cast<int>(out.w - w)));
+    }
+    const uint32_t y = align8_down((out.h - h) / 2);
+
+    // Normalised against the output plane, so every other plane lands on the same world region
+    // whatever its resolution -- full-size colour, third-size guides, or an upscaling input.
+    const double fx = (double)x / out.w, fw = (double)w / out.w;
+    const double fy = (double)y / out.h, fh = (double)h / out.h;
 
     for (const char* plane : kRewritePlanes) {
         const Rect r = read_subrect(params, plane);
         if (!r.valid) continue;
 
-        uint32_t w = align8_down(static_cast<uint32_t>(r.w * fraction));
-        uint32_t h = align8_down(static_cast<uint32_t>(r.h * fraction));
-        if (w < 64 || h < 64) continue;                    // too small to be a sane model input
-        if (w > r.w || h > r.h) continue;
-
-        // A fraction of THIS plane's width, so colour and the third-resolution guides converge by
-        // the same visual amount without needing to know their ratio.
-        const int scaled = static_cast<int>(signed_pct * static_cast<float>(r.w));
-        int cx = static_cast<int>(r.x + align8_down((r.w - w) / 2)) + scaled;
-        cx = std::max<int>(static_cast<int>(r.x), std::min<int>(cx, static_cast<int>(r.x + r.w - w)));
-
-        const uint32_t x = align8_down(static_cast<uint32_t>(cx));
-        const uint32_t y = r.y + align8_down((r.h - h) / 2);
-        if (x + w > r.x + r.w || y + h > r.y + r.h) continue;
+        uint32_t px = r.x + (uint32_t)(fx * r.w + 0.5);
+        uint32_t pw = (uint32_t)(fw * r.w + 0.5);
+        uint32_t py = r.y + (uint32_t)(fy * r.h + 0.5);
+        uint32_t ph = (uint32_t)(fh * r.h + 0.5);
+        if (pw < 8 || ph < 8) continue;
+        if (px + pw > r.x + r.w) pw = r.x + r.w - px;
+        if (py + ph > r.y + r.h) ph = r.y + r.h - py;
 
         char n[64];
-        subrect_name(n, plane, "BaseX");  nr_set_uint(params, n, x);
-        subrect_name(n, plane, "BaseY");  nr_set_uint(params, n, y);
-        subrect_name(n, plane, "Width");  nr_set_uint(params, n, w);
-        subrect_name(n, plane, "Height"); nr_set_uint(params, n, h);
+        subrect_name(n, plane, "BaseX");  nr_set_uint(params, n, px);
+        subrect_name(n, plane, "Width");  nr_set_uint(params, n, pw);
+        subrect_name(n, plane, "BaseY");  nr_set_uint(params, n, py);
+        subrect_name(n, plane, "Height"); nr_set_uint(params, n, ph);
 
         if (strcmp(plane, "Output") == 0) {
-            g_nr_box_w.store(w, std::memory_order_relaxed);
-            g_nr_box_h.store(h, std::memory_order_relaxed);
-            g_nr_box_x.store(x, std::memory_order_relaxed);
-            g_nr_box_y.store(y, std::memory_order_relaxed);
+            g_nr_box_x.store(px, std::memory_order_relaxed);
+            g_nr_box_y.store(py, std::memory_order_relaxed);
+            g_nr_box_w.store(pw, std::memory_order_relaxed);
+            g_nr_box_h.store(ph, std::memory_order_relaxed);
             g_last_plane_w.store(r.w, std::memory_order_relaxed);
-
-            // Logging the box only on evaluations 1 and 2 meant a run where the writes later
-            // stopped landing looked identical to one where they never stopped. Read it back and
-            // say so periodically, so "the box vanished" is answerable from the log.
             const uint64_t k = g_box_applies.fetch_add(1, std::memory_order_relaxed) + 1;
-            if (k == 1 || (k % 600) == 0) {
-                const Rect back = read_subrect(params, "Output");
-                const bool stuck = back.valid && back.x == x && back.y == y &&
-                                   back.w == w && back.h == h;
-                spdlog::info("[DLSSNR-FOV] apply {}: wrote ({},{}) {}x{} into plane {}x{} -- "
-                             "read back ({},{}) {}x{} {}", k, x, y, w, h, r.w, r.h,
-                             back.x, back.y, back.w, back.h, stuck ? "OK" : "MISMATCH");
-            }
+            if ((k % 601) == 0 || (k % 601) == 1)
+                spdlog::info("[DLSSNR-FOV] region {}: {} {} eye ({},{}) {}x{} of {}x{} = {}%",
+                             k, nasal ? "nasal" : "centred", left_eye ? "left" : "right",
+                             px, py, pw, ph, r.w, r.h,
+                             (100ull * pw * ph) / (1ull * r.w * r.h));
         }
     }
 }
-
 
 // WHY THIS EXISTS. DLSSNR.Output is a persistent resource the addon owns and blits back over the
 // frame in full. At full size NR writes every pixel of it, so nothing stale can ever show. Once the
@@ -1028,6 +1367,168 @@ int record_box_overwrite(ID3D12GraphicsCommandList* list, const PendingBox& b) {
 
 std::atomic<uint64_t> g_close_calls{0};
 
+// ---- the ring blend ----------------------------------------------------------------------------
+//
+// The seam is where NR'd pixels meet untreated ones. This fades between them across a ring just
+// inside the box: at the boundary the pixel is pure Colour, and it reaches pure NR `feather` pixels
+// further in. The centre is not touched at all, so NR's own result is preserved where it matters.
+//
+// It has to run after NR writes Output and before the addon reads it. Close is too late -- proven
+// with 7,800 box overwrites that neural rendering survived -- so it goes immediately before the
+// first Dispatch recorded after an evaluation, which the command probe showed is always the addon's
+// full-plane decode (159x162 groups of 16x16 = 2544x2592, first op, every time).
+//
+// BOTH resources are bound as UAVs rather than SRV+UAV. That avoids transitioning Colour to a
+// shader-read state and back, which would be two more barriers against a state we can only assume.
+const char* kBlendHLSL = R"(
+RWTexture2D<float4> src : register(u0);   // Colour, pre-NR
+RWTexture2D<float4> dst : register(u1);   // Output, post-NR
+cbuffer C : register(b0) { uint4 box; uint feather; uint debugMark; uint2 pad; };
+[numthreads(8,8,1)]
+void main(uint3 id : SV_DispatchThreadID) {
+    if (id.x >= box.z || id.y >= box.w) return;
+    uint dx = min(id.x, box.z - 1 - id.x);
+    uint dy = min(id.y, box.w - 1 - id.y);
+    float d = (float)min(dx, dy);
+    float f = max((float)feather, 1.0);
+    if (d >= f) return;                             // untouched centre: NR as written
+    float t = saturate(d / f);
+    t = t * t * (3.0 - 2.0 * t);
+    uint2 p = uint2(box.x + id.x, box.y + id.y);
+    if (debugMark != 0) { dst[p] = float4(1,0,0,1); return; }   // unmistakable: did our write survive?
+    dst[p] = lerp(src[p], dst[p], t);               // edge -> Colour, inward -> NR
+}
+)";
+
+ID3D12RootSignature*  g_blend_rs{nullptr};
+ID3D12PipelineState*  g_blend_pso{nullptr};
+ID3D12DescriptorHeap* g_blend_heap{nullptr};
+UINT g_blend_inc{0};
+ID3D12Resource* g_blend_bound[2][2]{};        // [eye][0]=colour [1]=output currently described
+bool g_blend_failed{false};
+bool g_blend_ready{false};
+std::atomic<uint64_t> g_blends{0};
+
+void release_blend() {
+    if (g_blend_pso)  { g_blend_pso->Release();  g_blend_pso = nullptr; }
+    if (g_blend_rs)   { g_blend_rs->Release();   g_blend_rs = nullptr; }
+    if (g_blend_heap) { g_blend_heap->Release(); g_blend_heap = nullptr; }
+    memset(g_blend_bound, 0, sizeof(g_blend_bound));
+    g_blend_ready = false;
+}
+
+bool init_blend(ID3D12Device* dev) {
+    if (g_blend_ready) return true;
+    if (g_blend_failed || dev == nullptr) return false;
+
+    D3D12_DESCRIPTOR_RANGE range{};
+    range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+    range.NumDescriptors = 2;
+    range.BaseShaderRegister = 0;
+    D3D12_ROOT_PARAMETER params[2]{};
+    params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    params[0].DescriptorTable.NumDescriptorRanges = 1;
+    params[0].DescriptorTable.pDescriptorRanges = &range;
+    params[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    params[1].Constants.Num32BitValues = 8;
+    params[1].Constants.ShaderRegister = 0;
+    D3D12_ROOT_SIGNATURE_DESC rsd{};
+    rsd.NumParameters = 2;
+    rsd.pParameters = params;
+
+    ID3DBlob* sig = nullptr; ID3DBlob* err = nullptr;
+    if (FAILED(D3D12SerializeRootSignature(&rsd, D3D_ROOT_SIGNATURE_VERSION_1, &sig, &err))) {
+        spdlog::error("[DLSSNR-FOV] blend root signature failed: {}",
+                      err ? (const char*)err->GetBufferPointer() : "?");
+        if (err) err->Release();
+        g_blend_failed = true;
+        return false;
+    }
+    if (err) { err->Release(); err = nullptr; }
+    HRESULT hr = dev->CreateRootSignature(0, sig->GetBufferPointer(), sig->GetBufferSize(),
+                                          IID_PPV_ARGS(&g_blend_rs));
+    sig->Release();
+    if (FAILED(hr)) { spdlog::error("[DLSSNR-FOV] CreateRootSignature failed"); g_blend_failed = true; return false; }
+
+    ID3DBlob* cs = nullptr;
+    hr = D3DCompile(kBlendHLSL, strlen(kBlendHLSL), nullptr, nullptr, nullptr, "main", "cs_5_0",
+                    0, 0, &cs, &err);
+    if (FAILED(hr)) {
+        spdlog::error("[DLSSNR-FOV] blend shader failed: {}",
+                      err ? (const char*)err->GetBufferPointer() : "?");
+        if (err) err->Release();
+        g_blend_failed = true;
+        return false;
+    }
+    if (err) { err->Release(); err = nullptr; }
+
+    D3D12_COMPUTE_PIPELINE_STATE_DESC pd{};
+    pd.pRootSignature = g_blend_rs;
+    pd.CS.pShaderBytecode = cs->GetBufferPointer();
+    pd.CS.BytecodeLength = cs->GetBufferSize();
+    hr = dev->CreateComputePipelineState(&pd, IID_PPV_ARGS(&g_blend_pso));
+    cs->Release();
+    if (FAILED(hr)) { spdlog::error("[DLSSNR-FOV] blend PSO failed"); g_blend_failed = true; return false; }
+
+    D3D12_DESCRIPTOR_HEAP_DESC hd{};
+    hd.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    hd.NumDescriptors = 4;                     // two per eye
+    hd.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+    if (FAILED(dev->CreateDescriptorHeap(&hd, IID_PPV_ARGS(&g_blend_heap)))) {
+        spdlog::error("[DLSSNR-FOV] blend descriptor heap failed");
+        g_blend_failed = true;
+        return false;
+    }
+    g_blend_inc = dev->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    g_blend_ready = true;
+    spdlog::info("[DLSSNR-FOV] ring blend ready");
+    return true;
+}
+
+bool describe_pair(ID3D12Device* dev, int eye, ID3D12Resource* colour, ID3D12Resource* output) {
+    if (g_blend_bound[eye][0] == colour && g_blend_bound[eye][1] == output) return true;
+    D3D12_UNORDERED_ACCESS_VIEW_DESC uav{};
+    uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+    const D3D12_RESOURCE_DESC cd = colour->GetDesc();
+    uav.Format = cd.Format;
+    auto h = g_blend_heap->GetCPUDescriptorHandleForHeapStart();
+    h.ptr += static_cast<SIZE_T>(eye) * 2 * g_blend_inc;
+    dev->CreateUnorderedAccessView(colour, nullptr, &uav, h);
+    h.ptr += g_blend_inc;
+    dev->CreateUnorderedAccessView(output, nullptr, &uav, h);
+    g_blend_bound[eye][0] = colour;
+    g_blend_bound[eye][1] = output;
+    spdlog::info("[DLSSNR-FOV] blend descriptors for eye {} -> colour {} output {} fmt {}",
+                 eye, (void*)colour, (void*)output, (int)cd.Format);
+    return true;
+}
+
+// POD-only so it can carry the SEH guard.
+int record_blend(ID3D12GraphicsCommandList* list, int eye,
+                 uint32_t bx, uint32_t by, uint32_t bw, uint32_t bh, uint32_t feather,
+                 ID3D12Resource* output, uint32_t dbg) {
+    __try {
+        D3D12_RESOURCE_BARRIER uavb{};
+        uavb.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+        uavb.UAV.pResource = output;                  // NR's writes must land before we read them
+        list->ResourceBarrier(1, &uavb);
+
+        ID3D12DescriptorHeap* heaps[1] = { g_blend_heap };
+        list->SetDescriptorHeaps(1, heaps);
+        list->SetComputeRootSignature(g_blend_rs);
+        list->SetPipelineState(g_blend_pso);
+        auto g = g_blend_heap->GetGPUDescriptorHandleForHeapStart();
+        g.ptr += static_cast<UINT64>(eye) * 2 * g_blend_inc;
+        list->SetComputeRootDescriptorTable(0, g);
+        const UINT c[8] = { bx, by, bw, bh, feather, dbg, 0, 0 };
+        list->SetComputeRoot32BitConstants(1, 8, c, 0);
+        list->Dispatch((bw + 7) / 8, (bh + 7) / 8, 1);
+
+        list->ResourceBarrier(1, &uavb);
+        return 0;
+    } __except (EXCEPTION_EXECUTE_HANDLER) { return 1; }
+}
+
 // ---- what consumes Output, and when ------------------------------------------------------------
 //
 // Close is definitively too late: 7,800 overwrites of the box at Close, zero faults, and neural
@@ -1046,8 +1547,17 @@ constexpr int kDrawIndexedSlot = 13;
 constexpr int kDispatchSlot    = 14;
 constexpr int kCopyTexSlot     = 16;
 constexpr int kCopyResSlot     = 17;
+constexpr int kSetPSOSlot      = 25;
+constexpr int kSetHeapsSlot    = 28;
+constexpr int kSetComputeRSSlot= 29;
 
 std::atomic<int> g_ops_after_eval{999};      // 999 = not armed
+bool g_blend_pending{false};
+int  g_blend_seen{0};
+int  g_blend_eye{0};
+uint32_t g_blend_box[4]{};
+ID3D12Resource* g_blend_output{nullptr};
+ID3D12GraphicsCommandList* g_blend_list{nullptr};
 std::atomic<uint64_t> g_op_bursts{0};
 
 bool op_should_log() {
@@ -1066,6 +1576,8 @@ void log_op(const char* op, ID3D12Resource* a, ID3D12Resource* b) {
     spdlog::info("[DLSSNR-FOV][op] {} dst={} src={}{}", op, (void*)a, (void*)b, tag);
 }
 
+void blend_here_if_pending(ID3D12GraphicsCommandList* l, const char* site);
+
 using DrawFn        = void(__stdcall*)(ID3D12GraphicsCommandList*, UINT, UINT, UINT, UINT);
 using DrawIdxFn     = void(__stdcall*)(ID3D12GraphicsCommandList*, UINT, UINT, UINT, INT, UINT);
 using DispatchFn    = void(__stdcall*)(ID3D12GraphicsCommandList*, UINT, UINT, UINT);
@@ -1082,8 +1594,65 @@ void __stdcall hooked_draw_indexed(ID3D12GraphicsCommandList* l, UINT a, UINT b,
     if (op_should_log()) spdlog::info("[DLSSNR-FOV][op] DrawIndexedInstanced");
     reinterpret_cast<DrawIdxFn>(g_list_orig_vt[kDrawIndexedSlot])(l, a, b, c, d, e);
 }
+// Blend at the EARLIEST command after an evaluation, not at the decode dispatch.
+//
+// Inserting before the dispatch meant inserting after the addon had already bound its pipeline
+// state, root signature and descriptor heaps -- and D3D12 offers no way to save or restore those,
+// so its decode ran against ours and both eyes froze on stale images. Going in before the addon
+// binds anything means it rebinds everything afterwards and never sees our state at all.
+// The insertion point is a SEARCH, not a guess. Close is too late, the first state-setting call is
+// too early (it is NGX's own, so NR overwrites us), and nothing the addon does announces the gap
+// between NR's last write and its decode. So every eligible command after an evaluation is counted
+// and the blend fires on the Nth -- sweep N live with the red debug ring on, and the value where
+// red appears is the window. If red never appears at any N, no such window is reachable from here.
+void blend_here_if_pending(ID3D12GraphicsCommandList* l, const char* site) {
+    if (t_our_own_commands || !g_blend_pending) return;
+    if (l != g_blend_list) return;              // never another list -- the vtable is shared
+    if (!DlssNeuralRendering::get()->blend_enabled()) return;
+    const int want = DlssNeuralRendering::get()->blend_slot();
+    if (g_blend_seen++ < want) return;
+    g_blend_pending = false;
+    t_our_own_commands = true;
+    const int r = record_blend(l, g_blend_eye, g_blend_box[0], g_blend_box[1], g_blend_box[2],
+                               g_blend_box[3], DlssNeuralRendering::get()->blend_feather_px(),
+                               g_blend_output,
+                               DlssNeuralRendering::get()->blend_debug() ? 1u : 0u);
+    t_our_own_commands = false;
+    if (r == 0) {
+        const auto n = g_blends.fetch_add(1, std::memory_order_relaxed) + 1;
+        if (n == 1 || (n % 600) == 0)
+            spdlog::info("[DLSSNR-FOV] ring blend #{} at slot {} ({})", n, want, site);
+    } else {
+        static std::atomic<bool> s_said{false};
+        bool e = false;
+        if (s_said.compare_exchange_strong(e, true))
+            spdlog::error("[DLSSNR-FOV] ring blend FAULTED while recording; disabling");
+        g_blend_failed = true;
+    }
+}
+
+using SetPSOFn      = void(__stdcall*)(ID3D12GraphicsCommandList*, ID3D12PipelineState*);
+using SetHeapsFn    = void(__stdcall*)(ID3D12GraphicsCommandList*, UINT, ID3D12DescriptorHeap* const*);
+using SetComputeRSFn= void(__stdcall*)(ID3D12GraphicsCommandList*, ID3D12RootSignature*);
+
+void __stdcall hooked_set_pso(ID3D12GraphicsCommandList* l, ID3D12PipelineState* pso) {
+    blend_here_if_pending(l, "SetPipelineState");
+    reinterpret_cast<SetPSOFn>(g_list_orig_vt[kSetPSOSlot])(l, pso);
+}
+void __stdcall hooked_set_heaps(ID3D12GraphicsCommandList* l, UINT n, ID3D12DescriptorHeap* const* h) {
+    blend_here_if_pending(l, "SetDescriptorHeaps");
+    reinterpret_cast<SetHeapsFn>(g_list_orig_vt[kSetHeapsSlot])(l, n, h);
+}
+void __stdcall hooked_set_compute_rs(ID3D12GraphicsCommandList* l, ID3D12RootSignature* rs) {
+    blend_here_if_pending(l, "SetComputeRootSignature");
+    reinterpret_cast<SetComputeRSFn>(g_list_orig_vt[kSetComputeRSSlot])(l, rs);
+}
+
 void __stdcall hooked_dispatch(ID3D12GraphicsCommandList* l, UINT x, UINT y, UINT z) {
     if (op_should_log()) spdlog::info("[DLSSNR-FOV][op] Dispatch {}x{}x{}", x, y, z);
+    // Fallback only: if the addon bound its state before evaluating, none of the setters above
+    // fired and this is the last chance -- at the cost of the clobber this change exists to avoid.
+    blend_here_if_pending(l, "Dispatch");
     reinterpret_cast<DispatchFn>(g_list_orig_vt[kDispatchSlot])(l, x, y, z);
 }
 void __stdcall hooked_copy_tex(ID3D12GraphicsCommandList* l, const D3D12_TEXTURE_COPY_LOCATION* d,
@@ -1091,10 +1660,12 @@ void __stdcall hooked_copy_tex(ID3D12GraphicsCommandList* l, const D3D12_TEXTURE
                                const D3D12_BOX* box) {
     if (op_should_log())
         log_op("CopyTextureRegion", d ? d->pResource : nullptr, s ? s->pResource : nullptr);
+    blend_here_if_pending(l, "CopyTextureRegion");
     reinterpret_cast<CopyTexFn>(g_list_orig_vt[kCopyTexSlot])(l, d, x, y, z, s, box);
 }
 void __stdcall hooked_copy_res(ID3D12GraphicsCommandList* l, ID3D12Resource* d, ID3D12Resource* s) {
     if (op_should_log()) log_op("CopyResource", d, s);
+    blend_here_if_pending(l, "CopyResource");
     reinterpret_cast<CopyResFn>(g_list_orig_vt[kCopyResSlot])(l, d, s);
 }
 
@@ -1157,6 +1728,9 @@ void hook_list_close(ID3D12GraphicsCommandList* list) {
         g_list_our_vt[kDispatchSlot]     = reinterpret_cast<void*>(&hooked_dispatch);
         g_list_our_vt[kCopyTexSlot]      = reinterpret_cast<void*>(&hooked_copy_tex);
         g_list_our_vt[kCopyResSlot]      = reinterpret_cast<void*>(&hooked_copy_res);
+        g_list_our_vt[kSetPSOSlot]       = reinterpret_cast<void*>(&hooked_set_pso);
+        g_list_our_vt[kSetHeapsSlot]     = reinterpret_cast<void*>(&hooked_set_heaps);
+        g_list_our_vt[kSetComputeRSSlot] = reinterpret_cast<void*>(&hooked_set_compute_rs);
         g_list_source_vt = vt;
         g_list_vt_built = true;
         spdlog::info("[DLSSNR-FOV] built the Close-hook vtable from list {}", (void*)list);
@@ -1218,10 +1792,14 @@ void foveal_prehook(ID3D12GraphicsCommandList* list, void* params) {
 
         auto& mod = DlssNeuralRendering::get();
         if (mod->foveation_enabled()) {
-            // BEFORE the box is applied and before NR runs, so the model overwrites the centre of
-            // an output that already holds this frame everywhere else.
-            // Box first: the periphery copy now needs to know where the box is so it can avoid it.
-            apply_foveal_box(params, mod->foveal_fraction(), mod->convergence_pct(), mod->swap_eyes());
+            // Box first: the periphery copy needs to know where the region is so it can avoid it.
+            //
+            // Center Box applies the percentage to BOTH axes and is identical in both eyes, so the
+            // two views agree. Stereo Slab keeps full height and anchors toward the nose per eye.
+            const float pct = mod->preset_percent();
+            const bool slab = mod->preset_is_slab();
+            apply_region(params, pct, slab ? 1.0f : pct,
+                         mod->convergence_pct(), /*nasal=*/slab, mod->swap_eyes());
             if (mod->refresh_periphery_enabled()) refresh_periphery(list, params);
 
             if (mod->close_probe_enabled()) {
@@ -1235,6 +1813,27 @@ void foveal_prehook(ID3D12GraphicsCommandList* list, void* params) {
                                             g_nr_box_h.load(std::memory_order_relaxed) };
                     g_pending_valid = g_pending.w != 0 && g_pending.h != 0;
                     hook_list_close(list);
+                }
+            }
+            if (mod->blend_enabled()) {
+                ID3D12Resource* c = recorded_resource("color");
+                ID3D12Resource* o = recorded_resource("out");
+                auto* dev = reinterpret_cast<ID3D12Device*>(g_native_dev);
+                const uint32_t bw = g_nr_box_w.load(std::memory_order_relaxed);
+                const uint32_t bh = g_nr_box_h.load(std::memory_order_relaxed);
+                if (c && o && dev && bw && bh && init_blend(dev)) {
+                    g_blend_eye = g_last_first_eye.load(std::memory_order_relaxed) ? 0 : 1;
+                    if (describe_pair(dev, g_blend_eye, c, o)) {
+                        g_blend_box[0] = g_nr_box_x.load(std::memory_order_relaxed);
+                        g_blend_box[1] = g_nr_box_y.load(std::memory_order_relaxed);
+                        g_blend_box[2] = bw;
+                        g_blend_box[3] = bh;
+                        g_blend_output = o;
+                        g_blend_pending = true;
+                        g_blend_seen = 0;
+                        g_blend_list = list;
+                        hook_list_close(list);
+                    }
                 }
             }
             if (mod->cmd_probe_enabled()) {
@@ -1291,6 +1890,112 @@ constexpr uint8_t kStubCode[kStubSize] = {
     0x48,0xB8,0,0,0,0,0,0,0,0,
     0xFF,0xE0,
 };
+
+// ---- model resolution -------------------------------------------------------------------------
+//
+// The strongest lever against NR's cost, and the one OptiScaler exposes as a slider: run the model
+// BELOW output resolution. NVIDIA quote 50-60% frame cost for neural rendering at output res, and we
+// measured it at ~4.5 ms of a ~21 ms frame here. Foveation caps out at ~19% because it can only
+// remove the part of the frame you are not looking at; dropping the model to 75% removes ~44% of its
+// cost everywhere, with no seam, no stereo geometry and no eye identity to get wrong.
+//
+// The working resolution is fixed at CreateFeature time via DLSSNR.Width/Height, so it has to be
+// changed there rather than per evaluation. The addon's own "Enable Upscaling" is a hardcoded 33%
+// version of exactly this (848x864 into 2544x2592); this makes the ratio a setting.
+std::atomic<uint32_t> g_model_res_w{0}, g_model_res_h{0};
+std::atomic<uint64_t> g_model_scaled{0};
+
+void create_prehook(uint32_t feature, void* params) {
+    try {
+        // MEASURED NO-OP, kept as a record rather than a control. Writing DLSSNR.Width/Height at
+        // CreateFeature succeeds and changes nothing: the addon allocates the model's input
+        // RESOURCES at its chosen size -- "created inline NR resources 848x864 -> 2544x2592" -- and
+        // the snippet takes its working resolution from those, not from these parameters. We set
+        // 1904x1944 and the feature was still built at 2544x2592 with no frame-time change.
+        // OptiScaler can offer a slider because it owns the resource allocation; hosting a closed
+        // addon, we do not. The only ratio available here is the addon's fixed Enable Upscaling.
+        return;
+        if (feature != 18) return;
+        const uint32_t pct = DlssNeuralRendering::get()->model_resolution_pct();
+        if (pct >= 100) return;
+
+        // The addon's own "Enable Upscaling" already runs the model below output -- hardcoded at
+        // the game's render resolution, a third here. Setting both meant telling the model to run
+        // at 1904x1944 while the addon had built an 848x864 contract: two answers to one question,
+        // and a good explanation for the shimmering that produced. One owner at a time.
+        {
+            std::lock_guard lock(g_mtx);
+            for (const auto& e : g_entries) {
+                if (_stricmp(e.key.c_str(), "NREnableUpscaling") == 0 && e.value == "1") {
+                    static std::atomic<bool> s_said{false};
+                    bool ex = false;
+                    if (s_said.compare_exchange_strong(ex, true))
+                        spdlog::warn("[DLSSNR-FOV] the addon's upscaling is on, which already runs "
+                                     "the model below output; model resolution ignored");
+                    return;
+                }
+            }
+        }
+
+        uint32_t w = 0, h = 0;
+        if (!nr_get_uint(params, "DLSSNR.Width", &w) || !nr_get_uint(params, "DLSSNR.Height", &h))
+            return;
+        if (w < 64 || h < 64) return;
+
+        // Multiples of eight: the model is happier on aligned dimensions and the guides divide down.
+        const uint32_t nw = align8_down((uint32_t)((uint64_t)w * pct / 100));
+        const uint32_t nh = align8_down((uint32_t)((uint64_t)h * pct / 100));
+        if (nw < 64 || nh < 64 || nw >= w) return;
+
+        nr_set_uint(params, "DLSSNR.Width", nw);
+        nr_set_uint(params, "DLSSNR.Height", nh);
+        g_model_res_w.store(nw, std::memory_order_relaxed);
+        g_model_res_h.store(nh, std::memory_order_relaxed);
+
+        const auto n = g_model_scaled.fetch_add(1, std::memory_order_relaxed) + 1;
+        if (n <= 3)
+            spdlog::info("[DLSSNR-FOV] model resolution {}%: {}x{} -> {}x{} at CreateFeature",
+                         pct, w, h, nw, nh);
+    } catch (...) {
+    }
+}
+
+// Same shape as the evaluate thunk -- JMP to the trampoline so the addon's return address survives
+// the signed runtime's caller check -- but it hands the prehook the FEATURE id (rdx) and the
+// parameter block (r8) instead of the command list.
+constexpr size_t kCreateStubSize = 0x4D;
+constexpr size_t kCreateStubPrehookImm = 0x1F;
+constexpr size_t kCreateStubTargetImm  = 0x43;
+constexpr uint8_t kCreateStubCode[kCreateStubSize] = {
+    0x48,0x83,0xEC,0x48,
+    0x48,0x89,0x4C,0x24,0x20,
+    0x48,0x89,0x54,0x24,0x28,
+    0x4C,0x89,0x44,0x24,0x30,
+    0x4C,0x89,0x4C,0x24,0x38,
+    0x89,0xD1,                          // mov ecx, edx   (feature)
+    0x4C,0x89,0xC2,                     // mov rdx, r8    (params)
+    0x48,0xB8,0,0,0,0,0,0,0,0,
+    0xFF,0xD0,
+    0x48,0x8B,0x4C,0x24,0x20,
+    0x48,0x8B,0x54,0x24,0x28,
+    0x4C,0x8B,0x44,0x24,0x30,
+    0x4C,0x8B,0x4C,0x24,0x38,
+    0x48,0x83,0xC4,0x48,
+    0x48,0xB8,0,0,0,0,0,0,0,0,
+    0xFF,0xE0,
+};
+
+safetyhook::InlineHook g_nr_create_hook{};
+
+uint8_t* build_create_stub() {
+    auto* stub = static_cast<uint8_t*>(
+        VirtualAlloc(nullptr, kCreateStubSize, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE));
+    if (stub == nullptr) return nullptr;
+    memcpy(stub, kCreateStubCode, kCreateStubSize);
+    const auto fn = reinterpret_cast<uint64_t>(&create_prehook);
+    memcpy(stub + kCreateStubPrehookImm, &fn, sizeof(fn));
+    return stub;
+}
 
 uint8_t* build_tail_jmp_stub() {
     auto* stub = static_cast<uint8_t*>(
@@ -1386,6 +2091,17 @@ void ReShadeLogMessage(HMODULE module, uint32_t level, const char* message) {
             spdlog::error("[DLSSNR-FOV] the runtime still refuses us as the caller even through the "
                           "tail-jump thunk. Neural rendering is being skipped; turn ProbeNGX off.");
         }
+    } else if (contains_ci(text, "feature 18 created")) {
+        // The addon states the geometry it built; showing that beats showing what we asked for.
+        if (const char* p1 = strstr(text, "NR input ")) {
+            unsigned iw = 0, ih = 0, ow = 0, oh = 0;
+            if (sscanf_s(p1, "NR input %ux%u -> output %ux%u", &iw, &ih, &ow, &oh) == 4) {
+                g_built_in_w.store(iw, std::memory_order_relaxed);
+                g_built_in_h.store(ih, std::memory_order_relaxed);
+                g_built_out_w.store(ow, std::memory_order_relaxed);
+                g_built_out_h.store(oh, std::memory_order_relaxed);
+            }
+        }
     } else if (contains_ci(text, "evaluation succeeded")) {
         g_nr_ok.fetch_add(1, std::memory_order_relaxed);
     }
@@ -1434,12 +2150,41 @@ void ReShadeSetConfigValue(void* module, void* runtime, const char* section, con
     if (e.value != next) { e.value = next; g_config_dirty = true; }
 }
 
+// Added by the 2026-09-02 addon build, which uses it to site its NR screenshot pairs. It is the
+// ONLY new entry point that build needs -- the other ten are unchanged -- so hosting it costs one
+// function rather than a rethink. ReShade's signature writes into a caller buffer and reports the
+// required size when the buffer is null.
+extern "C" __declspec(dllexport) void ReShadeGetBasePath(char* path, size_t* path_size) {
+    if (!hosting()) {
+        if (auto fn = forwarded<void(*)(char*, size_t*)>("ReShadeGetBasePath")) fn(path, path_size);
+        return;
+    }
+    wchar_t exe[MAX_PATH]{};
+    GetModuleFileNameW(nullptr, exe, MAX_PATH);
+    const auto dir = std::filesystem::path{exe}.parent_path().string();
+    if (path == nullptr) { if (path_size) *path_size = dir.size() + 1; return; }
+    const size_t cap = path_size ? *path_size : 0;
+    if (cap == 0) return;
+    const size_t n = std::min(dir.size(), cap - 1);
+    memcpy(path, dir.c_str(), n);
+    path[n] = '\0';
+    if (path_size) *path_size = n;
+}
+
 extern "C" __declspec(dllexport) const void* ReShadeGetImGuiFunctionTable(uint32_t version) {
     if (!hosting()) {
         if (auto fn = forwarded<const void*(*)(uint32_t)>("ReShadeGetImGuiFunctionTable"))
             return fn(version);
         return nullptr;
     }
+    // The version has been recorded and never acted on. ReShade ships a DIFFERENT table layout per
+    // ImGui version (imgui_function_table_18600, _18971, _19000, _19040, _19180 ...), and returning
+    // one fixed table regardless is why an addon built against another version lands its calls on
+    // the wrong members. The measured slots here -- Separator 80, Checkbox 115, SliderFloat 144 --
+    // match none of the published tables, whose Separator sits at 131, so the layout in use is
+    // older than anything currently in ReShade's tree. Log it so the right header can be fetched
+    // rather than the layout being re-measured widget by widget.
+    if (g_imgui_version_asked != version || g_imgui_table[0] == nullptr) build_imgui_table(version);
     g_imgui_version_asked = version;
     return g_imgui_table;                       // never null while hosting; see build_imgui_table
 }
@@ -1447,8 +2192,11 @@ extern "C" __declspec(dllexport) const void* ReShadeGetImGuiFunctionTable(uint32
 // ================================================================================================
 
 std::optional<std::string> DlssNeuralRendering::on_initialize() {
-    build_imgui_table();
-    fill_vts(std::make_integer_sequence<int, kVt>{});
+    // NOT building the ImGui table here. It allocates ~180 KB of executable thunk memory, and doing
+    // that at startup in EVERY game -- including ones where this mod is switched off and will never
+    // host anything -- is both wasteful and a needless perturbation of UEVR's startup, which is a
+    // documented race in some titles. The table is built when an addon first asks for it.
+    fill_vts(0);
     return Mod::on_initialize();
 }
 
@@ -1589,6 +2337,28 @@ void DlssNeuralRendering::install_ngx_probe() {
         spdlog::error("[DLSSNR-FOV] failed to enable the detour");
         return;
     }
+    // CreateFeature too, so the model resolution can be set where it is actually fixed.
+    if (auto* ct = reinterpret_cast<void*>(GetProcAddress(snippet, "NVSDK_NGX_D3D12_CreateFeature"))) {
+        if (uint8_t* cstub = build_create_stub()) {
+            auto ch = safetyhook::InlineHook::create(ct, cstub, safetyhook::InlineHook::StartDisabled);
+            if (ch) {
+                g_nr_create_hook = std::move(*ch);
+                const auto ctramp = reinterpret_cast<uint64_t>(g_nr_create_hook.original<void*>());
+                memcpy(cstub + kCreateStubTargetImm, &ctramp, sizeof(ctramp));
+                DWORD o = 0;
+                if (VirtualProtect(cstub, kCreateStubSize, PAGE_EXECUTE_READ, &o)) {
+                    FlushInstructionCache(GetCurrentProcess(), cstub, kCreateStubSize);
+                    if (auto en = g_nr_create_hook.enable(); en)
+                        spdlog::info("[DLSSNR-FOV] CreateFeature detoured; model resolution is settable");
+                    else
+                        spdlog::error("[DLSSNR-FOV] could not enable the CreateFeature detour");
+                }
+            } else {
+                spdlog::error("[DLSSNR-FOV] could not detour CreateFeature");
+            }
+        }
+    }
+
     g_nr_hooked.store(true, std::memory_order_relaxed);
     spdlog::info("[DLSSNR-FOV] EvaluateFeature detoured via tail-jump thunk at {} -> trampoline {:#x}. "
                  "The addon's return address is preserved, so the caller check should not fire.",
@@ -1713,15 +2483,70 @@ void DlssNeuralRendering::on_draw_sidebar_entry(std::string_view entry) {
         ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.4f, 1.0f), "Present callback faulted; dispatch off.");
 
     if (addon_page) {
+        // OURS, not the addon's. NeuralUplift is served from our store and read by the addon once at
+        // registration, so this works even when the addon's own page has faulted and cannot be
+        // drawn -- which is exactly when being unable to switch neural rendering on hurts most.
+        // Only when the addon cannot draw its own live toggle -- two checkboxes for one setting,
+        // one of them next-launch, was needlessly confusing.
+        if (g_overlay_faulted || g_overlay_cb == nullptr) {
+            std::lock_guard lock(g_mtx);
+            Entry& e = touch(kAddonSection, "NeuralUplift");
+            bool on = (e.value == "1");
+            if (ImGui::Checkbox("Neural rendering enabled (next launch)", &on)) {
+                e.value = on ? "1" : "0";
+                e.set = true;
+                g_config_dirty = true;
+                save_addon_config();
+            }
+            ImGui::TextDisabled("Takes effect on the next launch: the addon reads this once, when "
+                                "it loads. Independent of its own page below.");
+
+            // Both resolution controls together: they are the same lever and were fighting when
+            // they lived on separate pages.
+            Entry& up = touch(kAddonSection, "NREnableUpscaling");
+            bool ups = (up.value == "1");
+            if (ImGui::Checkbox("Enable upscaling at next launch", &ups)) {
+                up.value = ups ? "1" : "0";
+                up.set = true;
+                g_config_dirty = true;
+                save_addon_config();
+            }
+            ImGui::TextDisabled("Saved here, read by the addon once when it loads. To change it NOW, "
+                                "use Enable Upscaling on the addon's own page below -- that mutates "
+                                "its live variable. This runs the model at the game's render "
+                                "resolution, a third of output here -- the only ratio on offer.");
+
+            ImGui::Spacing();
+        {
+            const uint32_t iw = g_built_in_w.load(std::memory_order_relaxed);
+            const uint32_t ow = g_built_out_w.load(std::memory_order_relaxed);
+            if (ow != 0) {
+                ImGui::Text("Model runs at %ux%u -> %ux%u%s", iw,
+                            g_built_in_h.load(std::memory_order_relaxed), ow,
+                            g_built_out_h.load(std::memory_order_relaxed),
+                            iw < ow ? "  (upscaling)" : "  (native)");
+            }
+            ImGui::TextDisabled("Model resolution is fixed by the addon: it allocates the input "
+                                "resources, so the only ratio available is its own Enable "
+                                "Upscaling. Setting the NGX parameters from here has no effect.");
+        }
+        }
+
         // ---- the addon's own settings, on their own page ---------------------------------------
         ImGui::Separator();
         if (m_draw_addon_ui->value() && g_overlay_cb != nullptr && !g_overlay_faulted) {
             if (!invoke_overlay_guarded(reinterpret_cast<void(*)(void*)>(g_overlay_cb))) {
                 g_overlay_faulted = true;
-                spdlog::error("[DLSSNR] the addon's settings page faulted; not called again");
+                spdlog::error("[DLSSNR] the addon's settings page faulted; not called again. Last "
+                              "unimplemented ImGui slot entered was {} (0xFFFFFFFF = none, so the "
+                              "fault was inside one of our own forwarders)",
+                              (uint32_t)g_last_imgui_slot);
             }
         } else if (g_overlay_faulted) {
-            ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.4f, 1.0f), "The addon's settings page faulted.");
+            ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.4f, 1.0f),
+                               "The addon's settings page faulted and will not be drawn again this "
+                               "session. Use the checkbox above to control neural rendering; every "
+                               "other setting keeps its stored value.");
         } else {
             ImGui::TextDisabled("No addon page registered.");
         }
@@ -1760,57 +2585,61 @@ void DlssNeuralRendering::on_draw_sidebar_entry(std::string_view entry) {
             "detour. Turn on \"Enable DLSS Neural Rendering\" in Addon settings below; the detour "
             "installs a second later and these controls appear. No restart needed.");
     } else {
-        m_foveate->draw("Restrict NR to a centre box");
+        m_foveate->draw("Restrict neural rendering to a region");
 
-        // Fixed steps: a thumbstick on an ImGui slider skips straight past values.
-        const float kSteps[] = { 0.35f, 0.40f, 0.50f, 0.60f, 0.70f, 1.00f };
-        for (int i = 0; i < IM_ARRAYSIZE(kSteps); ++i) {
-            if (i != 0) ImGui::SameLine();
-            char label[16];
-            _snprintf_s(label, sizeof(label), _TRUNCATE, "%.2f", kSteps[i]);
-            const bool active = std::fabs(m_foveal_fraction->value() - kSteps[i]) < 0.005f;
-            if (active) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.25f, 0.5f, 0.3f, 1.0f));
-            if (ImGui::Button(label)) m_foveal_fraction->value() = kSteps[i];
-            if (active) ImGui::PopStyleColor();
+        ImGui::Text("Neural Rendering coverage");
+        ImGui::SetNextItemWidth(330.0f);
+        m_foveal_preset->draw("##coverage");
+
+        const float pct = preset_percent();
+        if (preset_is_slab()) {
+            ImGui::TextDisabled("Full height, anchored toward the nose so both eyes cover the same "
+                                "world and fuse into one region. %.0f%% of the pixels; the eyes "
+                                "share the middle %.0f%%.", pct * 100.0f, (2.0f * pct - 1.0f) * 100.0f);
+        } else {
+            ImGui::TextDisabled("Centred in each eye. %.0f%% x %.0f%% = %.0f%% of the pixels -- the "
+                                "cheapest option. Below 50%% the two eyes cannot share one region, "
+                                "so expect to see it per eye rather than fused.",
+                                pct * 100.0f, pct * 100.0f, pct * pct * 100.0f);
+            m_convergence_pct->draw("Stereo convergence");
+            ImGui::TextDisabled("Mirrored nudge toward the nose. Helps a little; it cannot make "
+                                "small regions fuse.");
         }
-        const float f = m_foveal_fraction->value();
-        ImGui::TextDisabled("Keeps %.0f%% of the pixels.", f * f * 100.0f);
+        m_swap_eyes->draw("Swap eyes");
+        ImGui::TextDisabled("Should not be needed: the eye is taken from UEVR directly. Only use it "
+                            "if the untreated area appears in the middle instead of the edges.");
 
-        m_cmd_probe->draw("Probe: log commands after NR");
-        ImGui::TextDisabled("Finds what reads Output, so a blend can go just before it.");
-        m_close_probe->draw("Probe: overwrite the box at Close");
-        ImGui::TextDisabled("Diagnostic. If neural rendering VANISHES, Close runs before the addon "
-                            "consumes its output and a proper feather can be built there. %llu done.",
-                            (unsigned long long)g_close_overwrites.load(std::memory_order_relaxed));
+        const auto bw = g_nr_box_w.load(std::memory_order_relaxed);
+        if (bw != 0) ImGui::Text("Region: %ux%u", bw, g_nr_box_h.load(std::memory_order_relaxed));
 
-        m_convergence_pct->draw("Stereo convergence (fraction of eye width)");
-        ImGui::TextDisabled("Mirrored per eye. OpenXR-Toolkit's fixed-foveated path uses 0.04; "
-                            "at %u px wide that is %d px per eye.",
-                            g_last_plane_w.load(std::memory_order_relaxed),
-                            (int)(m_convergence_pct->value() * g_last_plane_w.load(std::memory_order_relaxed)));
-        m_swap_eyes->draw("Swap which eye shifts");
+
+
 
 
 
 
         // ---- is the box actually cheaper? ----
         ImGui::Separator();
-        ImGui::TextDisabled("Stand still. Box off ~10 s, then on ~10 s.");
+        ImGui::TextDisabled("Rolling %d-frame window. Alternate off/on every ~10 s while standing "
+                            "still; both buckets stay recent so the comparison is fair.", kAbWindow);
         for (int i = 0; i < 2; ++i) {
-            const double avg = g_ms_n[i] ? g_ms_sum[i] / (double)g_ms_n[i] : 0.0;
+            const double avg = g_ms_n[i]
+                ? g_ms_sum[i] / (double)std::min<uint64_t>(g_ms_n[i], kAbWindow) : 0.0;
             if (g_ms_n[i] == 0) ImGui::TextDisabled("Box %s: no samples", i ? "ON " : "OFF");
             else ImGui::Text("Box %s: %.2f ms (%.1f fps) over %llu frames", i ? "ON " : "OFF",
                              avg, avg > 0.0 ? 1000.0 / avg : 0.0, (unsigned long long)g_ms_n[i]);
         }
         if (g_ms_n[0] && g_ms_n[1]) {
-            const double off = g_ms_sum[0] / (double)g_ms_n[0];
-            const double on = g_ms_sum[1] / (double)g_ms_n[1];
+            const double off = g_ms_sum[0] / (double)std::min<uint64_t>(g_ms_n[0], kAbWindow);
+            const double on = g_ms_sum[1] / (double)std::min<uint64_t>(g_ms_n[1], kAbWindow);
             ImGui::TextColored(on < off ? ImVec4(0.5f, 1.0f, 0.5f, 1.0f) : ImVec4(1.0f, 0.6f, 0.5f, 1.0f),
                                "Box saves %.2f ms/frame (%+.1f%%)", off - on,
                                off > 0.0 ? (off - on) / off * 100.0 : 0.0);
         }
         if (ImGui::Button("Reset measurement")) {
+            memset(g_ms_ring, 0, sizeof(g_ms_ring));
             g_ms_sum[0] = g_ms_sum[1] = 0.0;
+            g_ms_head[0] = g_ms_head[1] = 0;
             g_ms_n[0] = g_ms_n[1] = 0;
             g_ab_warmup = 30;
         }

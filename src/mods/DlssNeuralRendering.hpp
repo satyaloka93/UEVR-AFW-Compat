@@ -39,8 +39,8 @@ public:
 
     DlssNeuralRendering() {
         m_options = { *m_enabled, *m_dispatch_present, *m_draw_addon_ui,
-                      *m_probe_ngx, *m_foveate, *m_foveal_fraction, *m_refresh_periphery,
-                      *m_convergence_pct, *m_swap_eyes, *m_close_probe, *m_cmd_probe };
+                      *m_probe_ngx, *m_foveate, *m_foveal_preset, *m_model_res_pct, *m_foveal_fraction, *m_refresh_periphery,
+                      *m_convergence_pct, *m_swap_eyes, *m_close_probe, *m_cmd_probe, *m_blend, *m_blend_feather_px, *m_blend_debug, *m_blend_slot };
     }
 
     std::string_view get_name() const override { return "DLSS 5"; }
@@ -76,11 +76,31 @@ public:
     // members: the first are C exports, the second runs on the render thread from a hook.
     bool hosting_enabled() const { return m_enabled->value(); }
     bool foveation_enabled() const { return m_foveate->value(); }
+    // One preset drives everything, matching the CyberpunkVR port: a percentage plus whether it is
+    // a stereo slab. Width and height were separate controls here, so choosing 35% width left height
+    // at 100% and produced a thin vertical strip instead of a box -- the shape nobody asked for.
+    uint32_t model_resolution_pct() const { return (uint32_t)m_model_res_pct->value(); }
+    int foveal_preset() const { return m_foveal_preset->value(); }
+    float preset_percent() const {
+        static const float kPct[4] = { 0.35f, 0.50f, 0.65f, 0.80f };
+        const int i = m_foveal_preset->value();
+        return kPct[(i >= 0 && i < 4) ? i : 0];
+    }
+    // NASAL ANCHORING ONLY WORKS ABOVE 50%. Left eye keeps [1-c, 1], right keeps [0, c], so the two
+    // share world only where 2c-1 > 0: at 0.65 that is 30% of the width, at 0.35 it is NEGATIVE and
+    // the regions never meet -- which is why a 35% nasal box appeared as a thin sliver rather than a
+    // fused box. Hence the split the CyberpunkVR port uses and this briefly abandoned: centred below
+    // the threshold, nasal above it.
+    bool preset_is_slab() const { return m_foveal_preset->value() >= 2; }
     float foveal_fraction() const { return m_foveal_fraction->value(); }
     bool refresh_periphery_enabled() const { return m_refresh_periphery->value(); }
     float convergence_pct() const { return m_convergence_pct->value(); }
     bool close_probe_enabled() const { return m_close_probe->value(); }
     bool cmd_probe_enabled() const { return m_cmd_probe->value(); }
+    bool blend_enabled() const { return m_blend->value(); }
+    uint32_t blend_feather_px() const { return (uint32_t)m_blend_feather_px->value(); }
+    bool blend_debug() const { return m_blend_debug->value(); }
+    int blend_slot() const { return m_blend_slot->value(); }
     bool swap_eyes() const { return m_swap_eyes->value(); }
 
 private:
@@ -99,6 +119,18 @@ private:
     // Off by default and deliberately so: hooking the signed snippet is the open question, not the
     // foveal box. Enable this alone first and confirm NR still renders before enabling Foveate.
     ModToggle::Ptr m_probe_ngx{ ModToggle::create(generate_name("ProbeNGX"), false) };
+    // Runs the neural model below output resolution -- the lever OptiScaler exposes as a slider and
+    // the addon hardcodes at 33% in its "Enable Upscaling". 100 leaves it untouched. Applied at
+    // CreateFeature, so it takes effect when the feature is next built.
+    ModSliderInt32::Ptr m_model_res_pct{ ModSliderInt32::create(generate_name("ModelResolutionPct"),
+                                                                50, 100, 100) };
+    ModCombo::Ptr m_foveal_preset{ ModCombo::create(generate_name("FovealPreset"),
+        { "35% Center Box  | Fastest",
+          "50% Center Box  | Performance",
+          "65% Stereo Slab | Balanced",
+          "80% Stereo Slab | Quality" }, 0) };
+    // Independent, because full height keeps every row of the frame: a 65% slab is 65% of the
+    // pixels where a 35% box was 12%. Width and height are traded against each other by hand.
     ModToggle::Ptr m_foveate{ ModToggle::create(generate_name("Foveate"), false) };
     // Fraction of each subrect's width and height kept. 0.5 keeps a quarter of the pixels.
     ModSlider::Ptr m_foveal_fraction{ ModSlider::create(generate_name("FovealFraction"),
@@ -118,6 +150,15 @@ private:
     ModSlider::Ptr m_convergence_pct{ ModSlider::create(generate_name("ConvergencePct"),
                                                         0.0f, 0.12f, 0.04f) };
     // Settles whether Close() is a usable insertion point before any shader is written.
+    // Fades NR into the untreated periphery across a ring just inside the box. Inserts a
+    // compute dispatch mid-list, which clobbers whatever the addon had bound -- it rebinds
+    // per dispatch, but that is an assumption about a closed binary, so this is opt-in.
+    ModToggle::Ptr m_blend{ ModToggle::create(generate_name("RingBlend"), false) };
+    ModSliderInt32::Ptr m_blend_feather_px{ ModSliderInt32::create(
+                                                generate_name("RingBlendPx"), 8, 400, 120) };
+    ModSliderInt32::Ptr m_blend_slot{ ModSliderInt32::create(generate_name("RingBlendSlot"),
+                                                             0, 24, 0) };
+    ModToggle::Ptr m_blend_debug{ ModToggle::create(generate_name("RingBlendDebug"), false) };
     ModToggle::Ptr m_cmd_probe{ ModToggle::create(generate_name("CmdProbe"), false) };
     ModToggle::Ptr m_close_probe{ ModToggle::create(generate_name("CloseProbe"), false) };
     ModToggle::Ptr m_swap_eyes{ ModToggle::create(generate_name("SwapEyes"), false) };
