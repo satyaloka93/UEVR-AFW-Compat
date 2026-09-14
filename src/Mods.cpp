@@ -7,7 +7,6 @@
 #include "mods/VR.hpp"
 #include "mods/PluginLoader.hpp"
 #include "mods/LuaLoader.hpp"
-#include "mods/DlssNeuralRendering.hpp"
 #include "mods/UObjectHook.hpp"
 #include "Mods.hpp"
 
@@ -28,8 +27,7 @@ Mods::Mods() {
     m_mods.emplace_back(UObjectHook::get());
     m_mods.emplace_back(PluginLoader::get());
     m_mods.emplace_back(LuaLoader::get());
-    // Hosts RenoDX-style .addon64 files without ReShade, which cannot coexist with UEVR here.
-    m_mods.emplace_back(DlssNeuralRendering::get());
+    // Addon hosting is intentionally disabled. ReShade owns CheekyFoveatedDLSS.addon64.
 }
 
 std::optional<std::string> Mods::on_initialize() const {
