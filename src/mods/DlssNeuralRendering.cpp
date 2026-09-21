@@ -26,6 +26,12 @@
 #include "Framework.hpp"
 #include "mods/VR.hpp"
 #include "DlssNeuralRendering.hpp"
+#include "AddonStyle19250.hpp"
+#include "AddonFont19250.hpp"
+#include "AddonText19250.hpp"
+#include "AddonTooltip19250.hpp"
+#include "AddonDisabled19250.hpp"
+#include "AddonSwapchain.hpp"
 
 std::shared_ptr<DlssNeuralRendering>& DlssNeuralRendering::get() {
     static auto inst = std::make_shared<DlssNeuralRendering>();
@@ -53,6 +59,7 @@ std::vector<EventSub> g_events;
 void*    g_overlay_cb{nullptr};
 bool     g_overlay_faulted{false};
 int      g_addons_registered{0};
+std::vector<HMODULE> g_addon_uninit_targets;
 uint32_t g_api_version{0};
 uint32_t g_imgui_version_asked{0};
 char     g_addon_name[128]{};
@@ -60,6 +67,97 @@ char     g_addon_desc[256]{};
 char     g_last_error[256]{};
 uint64_t g_present_calls{0};
 bool     g_present_faulted{false};
+std::atomic<bool> g_sr_evaluation_observed{false};
+std::atomic<uint64_t> g_nr_last_eval_ms{0};
+
+// Observe the exact API18 addon's NGX post-evaluation callback, not the
+// separate fe120 processing path. These hooks never change inputs or decisions.
+safetyhook::MidHook g_nr_ngx_probes[4];
+std::atomic<uint64_t> g_nr_ngx_counts[4]{};
+std::atomic<uint64_t> g_nr_ngx_tag_rejected{};
+bool g_nr_ngx_attempted{};
+bool nr_ngx_stack(uintptr_t frame, bool tag, uint64_t* out) {
+    __try {
+        const auto p = reinterpret_cast<const uint8_t*>(frame);
+        if (tag) {
+            out[0] = *reinterpret_cast<const uint32_t*>(p + 0x1e4);
+            out[1] = *reinterpret_cast<const uintptr_t*>(p + 0x1f0) != 0;
+        } else {
+            out[0] = *reinterpret_cast<const uintptr_t*>(p + 0x1e8) != 0;
+            out[1] = *reinterpret_cast<const uintptr_t*>(p + 0x1a8) != 0;
+            out[2] = *reinterpret_cast<const uintptr_t*>(p + 0x1b0) != 0;
+            out[3] = *reinterpret_cast<const uint32_t*>(p + 0x1fc);
+            out[4] = *reinterpret_cast<const uint32_t*>(p + 0x200);
+        }
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+void observe_nr_ngx_entry(safetyhook::Context& ctx) {
+    const auto n = ++g_nr_ngx_counts[0];
+    if (n <= 4 || n % 600 == 0)
+        spdlog::info("[DLSSNR-NGX-GATE] entry={} result=0x{:08x} commandlist={} parameters={}",
+            n, uint32_t(ctx.r9), ctx.rcx != 0, ctx.r8 != 0);
+}
+void observe_nr_ngx_mode(safetyhook::Context& ctx) {
+    const auto n = ++g_nr_ngx_counts[1];
+    if (n <= 4 || n % 600 == 0)
+        spdlog::info("[DLSSNR-NGX-GATE] mode-check={} mode_raw={}", n, ctx.r13 & 255);
+}
+void observe_nr_ngx_inputs(safetyhook::Context& ctx) {
+    const auto n = ++g_nr_ngx_counts[2];
+    if (n > 4 && n % 600 != 0) return;
+    uint64_t s[5]{};
+    const bool read = nr_ngx_stack(ctx.rbp, false, s);
+    spdlog::info("[DLSSNR-NGX-GATE] inputs={} readable={} output={} motion={} depth={} render={}x{}",
+        n, read, s[0], s[1], s[2], s[3], s[4]);
+}
+void observe_nr_ngx_tag(safetyhook::Context& ctx) {
+    const auto n = ++g_nr_ngx_counts[3];
+    uint64_t s[5]{};
+    const bool read = nr_ngx_stack(ctx.rbp, true, s);
+    const auto hr = static_cast<int32_t>(ctx.rax);
+    const bool accepted = read && hr >= 0 && s[0] == 8 && s[1] != 0;
+    if (!accepted) ++g_nr_ngx_tag_rejected;
+    if (n <= 4 || n % 600 == 0)
+        spdlog::info("[DLSSNR-NGX-GATE] native-wrapper={} hr=0x{:08x} readable={} size={} pointer_present={} accepted={}",
+            n, uint32_t(hr), read, s[0], s[1], accepted);
+}
+void install_nr_ngx_gate_probes() {
+    if (g_nr_ngx_attempted || g_api_version != 18 ||
+        std::string_view(g_addon_name) != "RenoDX DLSS") return;
+    auto base = reinterpret_cast<const uint8_t*>(GetModuleHandleW(L"renodx-dlss.addon64"));
+    if (!base) return;
+    g_nr_ngx_attempted = true;
+    const auto dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
+    const auto pe = reinterpret_cast<const IMAGE_NT_HEADERS64*>(base + dos->e_lfanew);
+    if (pe->FileHeader.TimeDateStamp != 0xb6f86a12 ||
+        pe->OptionalHeader.SizeOfImage != 0x279000) {
+        spdlog::warn("[DLSSNR-NGX-GATE] unsupported addon fingerprint; no probes installed");
+        return;
+    }
+    struct Site { size_t rva; uint8_t bytes[9]; size_t length; void (*callback)(safetyhook::Context&); };
+    const Site sites[]{
+        {0x86a16, {0x48,0x89,0xd3,0x8b,0x05,0xd9,0xb5,0x1c,0x00}, 9, observe_nr_ngx_entry},
+        {0x86a83, {0x45,0x85,0xed,0x0f,0x84,0xc8,0x08,0x00,0x00}, 9, observe_nr_ngx_mode},
+        {0x86d50, {0x48,0x83,0xbd,0xe8,0x01,0x00,0x00,0x00}, 8, observe_nr_ngx_inputs},
+        {0x86dc7, {0x85,0xc0,0x0f,0x88,0x85,0x05,0x00,0x00}, 8, observe_nr_ngx_tag}
+    };
+    for (const auto& site : sites) {
+        if (memcmp(base + site.rva, site.bytes, site.length) != 0) {
+            spdlog::warn("[DLSSNR-NGX-GATE] fingerprint mismatch at {:x}; no probes installed", site.rva);
+            return;
+        }
+    }
+    for (size_t i = 0; i < std::size(sites); ++i) {
+        g_nr_ngx_probes[i] = safetyhook::create_mid(const_cast<uint8_t*>(base + sites[i].rva), sites[i].callback);
+        if (!g_nr_ngx_probes[i]) {
+            for (auto& probe : g_nr_ngx_probes) probe = {};
+            spdlog::warn("[DLSSNR-NGX-GATE] installation failed; probes removed");
+            return;
+        }
+    }
+    spdlog::info("[DLSSNR-NGX-GATE] installed entry/mode/inputs/native-wrapper observations");
+}
 
 // ---- frame-time A/B ----------------------------------------------------------------------------
 // Whether the box actually costs less has never been measured. Frame rate was compared by eye
@@ -255,6 +353,22 @@ std::string visible_label(const char* label) {
 const char* key_for_label(const char* label) {
     const std::string s = visible_label(label);
     if (s.empty()) return nullptr;
+    const bool modern = std::any_of(g_entries.begin(), g_entries.end(), [](const Entry& e) {
+        return e.asked && e.section == "RENODX-DLSS";
+    });
+    if (modern) {
+        static constexpr KeyMap keys[] = {
+            {"Diffuse White (nits)", "DirectNeuralRenderingDiffuseWhiteNits"},
+            {"Overall Intensity", "DirectNeuralRenderingIntensity"},
+            {"Structure Intensity", "DirectNeuralRenderingLocalStructureStrength"},
+            {"Global Tone Intensity", "DirectNeuralRenderingGlobalToneStrength"},
+            {"Local Tone Intensity", "DirectNeuralRenderingLocalToneStrength"},
+            {"Skin Structure Strength", "DirectNeuralRenderingSkinStructureStrength"}
+        };
+        for (const auto& m : keys)
+            if (_stricmp(m.label, s.c_str()) == 0) return m.key;
+        return nullptr; // never write a modern widget into the old schema
+    }
     for (const auto& m : kAddonKeys)
         if (_stricmp(m.label, s.c_str()) == 0) return m.key;
     // Tolerate small wording drift between addon builds ("NR Intensity" vs "NR Intensity:").
@@ -264,6 +378,17 @@ const char* key_for_label(const char* label) {
             return m.key;
     }
     return nullptr;
+}
+
+const char* section_for_key(const char* key) {
+    if (strncmp(key, "DirectNeuralRendering", 21) != 0) return kAddonSection;
+    const char* section = nullptr;
+    for (const auto& e : g_entries) {
+        if (!e.asked || e.key != key || e.section.rfind("RENODX-DLSS", 0) != 0) continue;
+        if (section != nullptr) return nullptr; // cannot infer active preset
+        section = e.section.c_str();
+    }
+    return section;
 }
 
 // Every distinct control the addon draws is announced once, with the key it resolved to. The
@@ -278,7 +403,9 @@ void note_control(const char* label) {
     if (std::find(g_seen_controls.begin(), g_seen_controls.end(), vis) != g_seen_controls.end()) return;
     g_seen_controls.push_back(vis);
     if (const char* key = key_for_label(label)) {
-        spdlog::info("[DLSSNR] control \"{}\" -> [{}] {}", vis, kAddonSection, key);
+        const char* section = section_for_key(key);
+        spdlog::info("[DLSSNR] control \"{}\" -> [{}] {}", vis,
+                     section ? section : "ambiguous; not saved", key);
     } else {
         if (!g_unmatched_label[0]) strncpy_s(g_unmatched_label, vis.c_str(), _TRUNCATE);
         spdlog::warn("[DLSSNR] control \"{}\" maps to no known config key; it will NOT persist", vis);
@@ -289,7 +416,12 @@ void remember(const char* label, const char* formatted) {
     const char* key = key_for_label(label);
     if (key == nullptr) return;
     std::lock_guard lock(g_mtx);
-    Entry& e = touch(kAddonSection, key);
+    const char* section = section_for_key(key);
+    if (section == nullptr) {
+        spdlog::warn("[DLSSNR] not saving {}: no unique requested section", key);
+        return;
+    }
+    Entry& e = touch(section, key);
     if (e.value == formatted) return;
     e.value = formatted;
     e.set = true;
@@ -417,6 +549,37 @@ void impl_text_unformatted(const char* text, const char* end) {
 void impl_textv(const char* fmt, va_list args) {
     if (readable_string(fmt, 256)) ImGui::TextV(fmt, args);
 }
+void impl_text_colored(const ImVec4& color, const char* fmt, va_list args) {
+    if (!readable_string(fmt, 256)) return;
+    const auto message = addon_ui::text_colored(color, fmt, args);
+    // Bounded, deduplicated UI evidence only; never treat arbitrary addon text as
+    // an independently measured successful NR evaluation.
+    static std::vector<std::string> observed;
+    if (g_api_version == 18 && std::string_view(g_addon_name) == "RenoDX DLSS" &&
+        observed.size() < 32 &&
+        std::find(observed.begin(), observed.end(), message.data()) == observed.end()) {
+        observed.emplace_back(message.data());
+        spdlog::info("[DLSSNR-ADDON-STATUS] {}", message.data());
+    }
+}
+void impl_text_disabled(const char* fmt, va_list args) {
+    if (readable_string(fmt, 256)) ImGui::TextDisabledV(fmt, args);
+}
+void impl_text_wrapped(const char* fmt, va_list args) {
+    if (readable_string(fmt, 256)) ImGui::TextWrappedV(fmt, args);
+}
+void impl_label_text(const char* label, const char* fmt, va_list args) {
+    if (readable_string(label, 256) && readable_string(fmt, 256)) ImGui::LabelTextV(label, fmt, args);
+}
+void impl_bullet_text(const char* fmt, va_list args) {
+    if (readable_string(fmt, 256)) ImGui::BulletTextV(fmt, args);
+}
+void impl_set_tooltip(const char* fmt, va_list args) {
+    if (readable_string(fmt, 256)) addon_ui::set_tooltip(fmt, args);
+}
+void impl_set_item_tooltip(const char* fmt, va_list args) {
+    if (readable_string(fmt, 256)) addon_ui::set_item_tooltip(fmt, args);
+}
 void impl_separator() { ImGui::Separator(); }
 // Combo has three table entries and which one slot 129 is cannot be told apart, so it is inferred
 // from the argument: a char** whose first element reads as a string is the array form.
@@ -518,7 +681,7 @@ void* make_safe_stub() {
 ImDrawList* impl_get_window_draw_list()      { return ImGui::GetWindowDrawList(); }
 ImVec2 impl_get_cursor_screen_pos()          { return ImGui::GetCursorScreenPos(); }
 float  impl_get_frame_height()               { return ImGui::GetFrameHeight(); }
-ImU32  impl_get_color_u32(ImGuiCol i, float a){ return ImGui::GetColorU32(i, a); }
+ImU32  impl_get_color_u32(ImGuiCol i, float a){ return ImGui::GetColorU32(addon_ui::host_color(i), a); }
 void   impl_same_line(float off, float sp)   { ImGui::SameLine(off, sp); }
 bool   impl_invisible_button(const char* id, const ImVec2& sz, ImGuiButtonFlags f) {
     return readable_string(id, 128) ? ImGui::InvisibleButton(id, sz, f) : false;
@@ -573,13 +736,49 @@ void build_imgui_table(uint32_t version) {
         fill_stubs(std::make_integer_sequence<int, kSlots>{});
     }
     const Slot kMap[] = {
+        {   1, reinterpret_cast<void*>(&addon_ui::style) },
         {  12, reinterpret_cast<void*>(&impl_get_window_draw_list) },
+        {  44, reinterpret_cast<void*>(&addon_ui::push_font) },
+        {  45, reinterpret_cast<void*>(&addon_ui::pop_font) },
+        {  46, reinterpret_cast<void*>(&addon_ui::font) },
+        {  47, reinterpret_cast<void*>(&ImGui::GetFontSize) },
+        {  49, reinterpret_cast<void*>(&addon_ui::push_color_u32) },
+        {  50, reinterpret_cast<void*>(&addon_ui::push_color_vec4) },
+        {  51, reinterpret_cast<void*>(&addon_ui::pop_colors) },
+        {  59, reinterpret_cast<void*>(&ImGui::PushItemWidth) },
+        {  60, reinterpret_cast<void*>(&ImGui::PopItemWidth) },
+        {  61, reinterpret_cast<void*>(&ImGui::SetNextItemWidth) },
+        {  62, reinterpret_cast<void*>(&ImGui::CalcItemWidth) },
+        {  63, reinterpret_cast<void*>(&ImGui::PushTextWrapPos) },
+        {  64, reinterpret_cast<void*>(&ImGui::PopTextWrapPos) },
         {  66, reinterpret_cast<void*>(&impl_get_color_u32) },
+        {  67, reinterpret_cast<void*>(&addon_ui::color_vec4) },
+        {  68, reinterpret_cast<void*>(&addon_ui::color_u32) },
+        {  69, reinterpret_cast<void*>(&addon_ui::style_color) },
         {  70, reinterpret_cast<void*>(&impl_get_cursor_screen_pos) },
+        {  71, reinterpret_cast<void*>(&ImGui::SetCursorScreenPos) },
         {  72, reinterpret_cast<void*>(&impl_content_region_avail) },
+        {  73, reinterpret_cast<void*>(&ImGui::GetCursorPos) },
+        {  74, reinterpret_cast<void*>(&ImGui::GetCursorPosX) },
+        {  75, reinterpret_cast<void*>(&ImGui::GetCursorPosY) },
+        {  76, reinterpret_cast<void*>(&ImGui::SetCursorPos) },
+        {  77, reinterpret_cast<void*>(&ImGui::SetCursorPosX) },
+        {  78, reinterpret_cast<void*>(&ImGui::SetCursorPosY) },
+        {  79, reinterpret_cast<void*>(&ImGui::GetCursorStartPos) },
         {  80, reinterpret_cast<void*>(&impl_separator) },
         {  81, reinterpret_cast<void*>(&impl_same_line) },
+        {  82, reinterpret_cast<void*>(&ImGui::NewLine) },
+        {  83, reinterpret_cast<void*>(&ImGui::Spacing) },
+        {  84, reinterpret_cast<void*>(&ImGui::Dummy) },
+        {  85, reinterpret_cast<void*>(&ImGui::Indent) },
+        {  86, reinterpret_cast<void*>(&ImGui::Unindent) },
+        {  87, reinterpret_cast<void*>(&ImGui::BeginGroup) },
+        {  88, reinterpret_cast<void*>(&ImGui::EndGroup) },
+        {  89, reinterpret_cast<void*>(&ImGui::AlignTextToFramePadding) },
+        {  90, reinterpret_cast<void*>(&ImGui::GetTextLineHeight) },
+        {  91, reinterpret_cast<void*>(&ImGui::GetTextLineHeightWithSpacing) },
         {  92, reinterpret_cast<void*>(&impl_get_frame_height) },
+        {  93, reinterpret_cast<void*>(&ImGui::GetFrameHeightWithSpacing) },
         {  94, reinterpret_cast<void*>(&impl_push_id_str) },
         {  95, reinterpret_cast<void*>(&impl_push_id_range) },
         {  96, reinterpret_cast<void*>(&impl_push_id_ptr) },
@@ -587,15 +786,36 @@ void build_imgui_table(uint32_t version) {
         {  98, reinterpret_cast<void*>(&impl_pop_id) },
         { 103, reinterpret_cast<void*>(&impl_text_unformatted) },
         { 104, reinterpret_cast<void*>(&impl_textv) },
+        { 105, reinterpret_cast<void*>(&impl_text_colored) },
+        { 106, reinterpret_cast<void*>(&impl_text_disabled) },
+        { 107, reinterpret_cast<void*>(&impl_text_wrapped) },
+        { 108, reinterpret_cast<void*>(&impl_label_text) },
+        { 109, reinterpret_cast<void*>(&impl_bullet_text) },
         { 111, reinterpret_cast<void*>(&impl_button) },
         { 113, reinterpret_cast<void*>(&impl_invisible_button) },
         { 115, reinterpret_cast<void*>(&impl_checkbox) },
         { 129, reinterpret_cast<void*>(&impl_combo) },
         { 130, reinterpret_cast<void*>(&impl_combo) },
         { 144, reinterpret_cast<void*>(&impl_slider) },
+        { 218, reinterpret_cast<void*>(&addon_ui::begin_tooltip) },
+        { 219, reinterpret_cast<void*>(&addon_ui::end_tooltip) },
+        { 220, reinterpret_cast<void*>(&impl_set_tooltip) },
+        { 221, reinterpret_cast<void*>(&addon_ui::begin_item_tooltip) },
+        { 222, reinterpret_cast<void*>(&impl_set_item_tooltip) },
+        { 279, reinterpret_cast<void*>(&addon_ui::begin_disabled) },
+        { 280, reinterpret_cast<void*>(&addon_ui::end_disabled) },
         { 287, reinterpret_cast<void*>(&impl_is_item_hovered) },
         { 288, reinterpret_cast<void*>(&impl_is_item_active) },
+        { 289, reinterpret_cast<void*>(&ImGui::IsItemFocused) },
+        { 301, reinterpret_cast<void*>(&ImGui::GetItemRectMin) },
+        { 302, reinterpret_cast<void*>(&ImGui::GetItemRectMax) },
+        { 314, reinterpret_cast<void*>(&ImGui::CalcTextSize) },
+        { 315, reinterpret_cast<void*>(&ImGui::ColorConvertU32ToFloat4) },
+        { 316, reinterpret_cast<void*>(&ImGui::ColorConvertFloat4ToU32) },
+        { 317, reinterpret_cast<void*>(&ImGui::ColorConvertRGBtoHSV) },
+        { 318, reinterpret_cast<void*>(&ImGui::ColorConvertHSVtoRGB) },
         { 324, reinterpret_cast<void*>(&impl_get_key_name) },
+        { 338, reinterpret_cast<void*>(&ImGui::GetMousePos) },
         { 380, reinterpret_cast<void*>(&dl_add_line) },
         { 381, reinterpret_cast<void*>(&dl_add_rect) },
         { 382, reinterpret_cast<void*>(&dl_add_rect_filled) },
@@ -603,6 +823,7 @@ void build_imgui_table(uint32_t version) {
         { 388, reinterpret_cast<void*>(&dl_add_circle) },
         { 389, reinterpret_cast<void*>(&dl_add_circle_filled) },
         { 394, reinterpret_cast<void*>(&dl_add_text) },
+        { 395, reinterpret_cast<void*>(&addon_ui::draw_text) },
         { 404, reinterpret_cast<void*>(&dl_path_arc_to) },
         { 405, reinterpret_cast<void*>(&dl_path_arc_to_fast) },
     };
@@ -632,11 +853,19 @@ void build_imgui_table(uint32_t version) {
 //   effect_runtime: device_object, then 4 get_back_buffer, ...
 constexpr int kVt = 128;
 void* g_dev_vt[kVt]; void* g_queue_vt[kVt]; void* g_swap_vt[kVt]; void* g_runtime_vt[kVt];
+void* g_cmdlist_vt[kVt];
 void* g_fake_dev[2]{g_dev_vt, nullptr};
 void* g_fake_queue[2]{g_queue_vt, nullptr};
 void* g_fake_swap[2]{g_swap_vt, nullptr};
 void* g_fake_runtime[2]{g_runtime_vt, nullptr};
+void* g_fake_cmdlist[2]{g_cmdlist_vt, nullptr};
 uint64_t g_native_dev{0}, g_native_queue{0}, g_native_swap{0};
+// Rebound per dispatch: one command_list object standing in for whichever list is being executed.
+// THREAD-LOCAL, not global. With the lock gone from dispatch_execute_command_list, the game thread
+// and the present thread can be inside a dispatch at the same time; a single global here would let
+// one stomp the other's list pointer and hand the addon a command list belonging to another thread.
+// Write (dispatch) and read (get_native, from inside the addon's callback) are on the same thread.
+thread_local uint64_t g_native_cmdlist{0};
 
 // Addons attach per-object state through private data, and answering with garbage is worse than
 // answering with nothing. A small table is enough: the addon keeps a handful of entries.
@@ -646,6 +875,7 @@ PrivateSlot g_private[32];
 uint64_t __fastcall obj_get_native_dev(void*)   { return g_native_dev; }
 uint64_t __fastcall obj_get_native_queue(void*) { return g_native_queue; }
 uint64_t __fastcall obj_get_native_swap(void*)  { return g_native_swap; }
+uint64_t __fastcall obj_get_native_cmdlist(void*) { return g_native_cmdlist; }
 
 void __fastcall obj_get_private(void* self, const uint8_t* guid, uint64_t* out) {
     if (out == nullptr) return;
@@ -669,8 +899,32 @@ uint32_t __fastcall dev_get_api(void*)        { return 0xc000; }   // device_api
 uint32_t __fastcall queue_get_type(void*)     { return 0x1; }      // command_queue_type::graphics
 void     __fastcall queue_wait_idle(void*)    {}
 uint64_t __fastcall queue_timestamp_freq(void*) { return 0; }
-uint32_t __fastcall swap_backbuffer_count(void*) { return 1; }
-uint32_t __fastcall swap_current_index(void*)    { return 0; }
+addon_host::Swapchain g_swapchain;
+// MSVC x64 virtual member returning a large struct: this=RCX, result=RDX,
+// resource=R8, return the result pointer in RAX. A free struct-returning
+// function would put the hidden result argument BEFORE this instead.
+addon_host::ResourceDesc* __fastcall dev_resource_desc(void*, addon_host::ResourceDesc* out,
+                                                       uint64_t resource) {
+    std::lock_guard lock(g_mtx);
+    if (out) *out = g_swapchain.describe(resource);
+    return out;
+}
+void* __fastcall swap_hwnd(void*) { std::lock_guard lock(g_mtx); return g_swapchain.hwnd(); }
+uint64_t __fastcall swap_backbuffer(void*, uint32_t index) {
+    std::lock_guard lock(g_mtx); return g_swapchain.buffer(index);
+}
+uint32_t __fastcall swap_backbuffer_count(void*) {
+    std::lock_guard lock(g_mtx); return g_swapchain.count();
+}
+uint32_t __fastcall swap_current_index(void*) {
+    std::lock_guard lock(g_mtx); return g_swapchain.index();
+}
+bool __fastcall swap_supports_color(void*, uint32_t color) {
+    std::lock_guard lock(g_mtx); return g_swapchain.supports_color(color);
+}
+// DXGI has no current-color-space getter. Until SetColorSpace1 is tracked,
+// report unknown, not an HDR/SDR guess based on the backbuffer format.
+uint32_t __fastcall swap_color_space(void*) { return 0; }
 
 // Anything not modelled returns zero in both RAX and XMM0, so a member returning a struct or a
 // float cannot corrupt the caller's frame -- the same reason the ImGui stubs are hand-assembled.
@@ -683,31 +937,206 @@ template <int... I> void fill_vt(void** vt, void* safe, std::integer_sequence<in
 void fill_vts(...) {
     void* safe = make_safe_stub();
     for (int i = 0; i < kVt; ++i) {
-        g_dev_vt[i] = g_queue_vt[i] = g_swap_vt[i] = g_runtime_vt[i] = safe;
+        g_dev_vt[i] = g_queue_vt[i] = g_swap_vt[i] = g_runtime_vt[i] = g_cmdlist_vt[i] = safe;
     }
+    g_cmdlist_vt[0] = reinterpret_cast<void*>(&obj_get_native_cmdlist);
     // api_object, shared by all four
     g_dev_vt[0]     = reinterpret_cast<void*>(&obj_get_native_dev);
     g_queue_vt[0]   = reinterpret_cast<void*>(&obj_get_native_queue);
     g_swap_vt[0]    = reinterpret_cast<void*>(&obj_get_native_swap);
     g_runtime_vt[0] = reinterpret_cast<void*>(&obj_get_native_swap);
-    for (void** vt : { g_dev_vt, g_queue_vt, g_swap_vt, g_runtime_vt }) {
+    for (void** vt : { g_dev_vt, g_queue_vt, g_swap_vt, g_runtime_vt, g_cmdlist_vt }) {
         vt[1] = reinterpret_cast<void*>(&obj_get_private);
         vt[2] = reinterpret_cast<void*>(&obj_set_private);
     }
     // device_object::get_device on everything except the device itself
-    for (void** vt : { g_queue_vt, g_swap_vt, g_runtime_vt })
+    for (void** vt : { g_queue_vt, g_swap_vt, g_runtime_vt, g_cmdlist_vt })
         vt[3] = reinterpret_cast<void*>(&obj_get_device);
 
     g_dev_vt[3]   = reinterpret_cast<void*>(&dev_get_api);
+    g_dev_vt[10]  = reinterpret_cast<void*>(&dev_resource_desc);
     g_queue_vt[4] = reinterpret_cast<void*>(&queue_get_type);
     g_queue_vt[5] = reinterpret_cast<void*>(&queue_wait_idle);
     g_queue_vt[12] = reinterpret_cast<void*>(&queue_timestamp_freq);
-    g_swap_vt[5]  = reinterpret_cast<void*>(&swap_backbuffer_count);
-    g_swap_vt[6]  = reinterpret_cast<void*>(&swap_current_index);
+    g_swap_vt[4]  = reinterpret_cast<void*>(&swap_hwnd);
+    g_swap_vt[5]  = reinterpret_cast<void*>(&swap_backbuffer);
+    g_swap_vt[6]  = reinterpret_cast<void*>(&swap_backbuffer_count);
+    g_swap_vt[7]  = reinterpret_cast<void*>(&swap_current_index);
+    g_swap_vt[8]  = reinterpret_cast<void*>(&swap_supports_color);
+    g_swap_vt[9]  = reinterpret_cast<void*>(&swap_color_space);
     spdlog::info("[DLSSNR] ReShade object model built from the published vtable layouts");
 }
 
 using PresentFn = void (*)(void*, void*, const int32_t*, const int32_t*, uint32_t, const void*);
+using ExecuteListFn = void (*)(void*, void*);          // (command_queue*, command_list*)
+
+bool g_lifecycle_ready{}, g_lifecycle_failed{}, g_queue_started{}, g_swap_started{};
+uint32_t g_resources_started{};
+bool g_lifecycle_resize{};
+
+std::vector<void*> lifecycle_callbacks(uint32_t id) {
+    std::lock_guard lock(g_mtx);
+    for (const auto& event : g_events) if (event.id == id) return event.fns;
+    return {};
+}
+bool invoke_lifecycle(void* fn, uint32_t id, const addon_host::ResourceDesc* desc,
+                      uint64_t resource, bool resize) {
+    __try {
+        switch (id) {
+        case 4: case 5:
+            reinterpret_cast<void(*)(void*)>(fn)(g_fake_queue); break;
+        case 6: case 8:
+            reinterpret_cast<void(*)(void*, bool)>(fn)(g_fake_swap, resize); break;
+        case 14:
+            reinterpret_cast<void(*)(void*, const addon_host::ResourceDesc&, const void*, uint32_t, uint64_t)>(fn)
+                (g_fake_dev, *desc, nullptr, 0x80000804u, resource); break;
+        case 16:
+            reinterpret_cast<void(*)(void*, uint64_t)>(fn)(g_fake_dev, resource); break;
+        default: return false;
+        }
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+bool dispatch_lifecycle(uint32_t id, const addon_host::ResourceDesc* desc = nullptr,
+                        uint64_t resource = 0, bool resize = false) {
+    bool ok = true;
+    for (void* fn : lifecycle_callbacks(id)) {
+        if (!invoke_lifecycle(fn, id, desc, resource, resize)) {
+            spdlog::error("[DLSSNR-LIFECYCLE] event {} callback {} faulted; NR dispatch disabled", id, fn);
+            ok = false;
+        }
+    }
+    return ok;
+}
+bool initialize_lifecycle() {
+    // The earlier DLSS5 addon did not request this lifecycle. Scope the new
+    // dispatch to the API18 controller whose interface was audited.
+    if (g_api_version != 18 || strcmp(g_addon_name, "RenoDX DLSS") != 0) return true;
+    if (g_lifecycle_failed) return false;
+    if (g_lifecycle_ready) return true;
+    if (!g_native_queue || g_swapchain.count() == 0) return false;
+    g_queue_started = true;
+    bool ok = dispatch_lifecycle(4);
+    for (uint32_t i = 0; ok && i < g_swapchain.count(); ++i) {
+        const auto handle = g_swapchain.buffer(i);
+        const auto desc = g_swapchain.describe(handle);
+        g_resources_started = i + 1;
+        ok = desc.type != 0 && dispatch_lifecycle(14, &desc, handle);
+    }
+    if (ok) {
+        g_swap_started = true;
+        ok = dispatch_lifecycle(6, nullptr, 0, g_lifecycle_resize);
+    }
+    g_lifecycle_ready = ok;
+    g_lifecycle_failed = !ok;
+    spdlog::info("[DLSSNR-LIFECYCLE] initialized={} buffers={} resize={}",
+                 ok, g_resources_started, g_lifecycle_resize);
+    return ok;
+}
+void destroy_lifecycle(bool resize) {
+    if (g_swap_started) dispatch_lifecycle(8, nullptr, 0, resize);
+    for (uint32_t i = g_resources_started; i > 0; --i)
+        dispatch_lifecycle(16, nullptr, g_swapchain.buffer(i - 1));
+    if (g_queue_started) dispatch_lifecycle(5);
+    g_swap_started = g_queue_started = g_lifecycle_ready = false;
+    g_resources_started = 0;
+    // A callback fault stays disabled for the session, including across reset.
+    g_lifecycle_resize = resize;
+}
+
+bool invoke_execute_guarded(ExecuteListFn fn) {
+    __try { fn(g_fake_queue, g_fake_cmdlist); return true; }
+    __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+
+// ---- addon_event::execute_command_list (72) ----------------------------------------------------
+//
+// Needed by addons that put their own work on the game's command lists rather than only reading the
+// finished frame. CheekyFoveatedDLSS subscribes to exactly two events -- present and this one -- so
+// without it such an addon registers, draws its page, and never does anything.
+//
+// The only way to know a list is being submitted is to watch the queue, so ExecuteCommandLists
+// (ID3D12CommandQueue vtable slot 10: IUnknown 0-2, ID3D12Object 3-6, DeviceChild 7, then
+// UpdateTileMappings, CopyTileMappings, ExecuteCommandLists) is intercepted per instance -- the same
+// copy-the-vtable-and-point-this-object-at-it technique already used for the NGX parameter block.
+constexpr int kExecuteListsSlot = 10;
+void* g_queue_orig_vt[32]{};
+void* g_queue_our_vt[32]{};
+void* g_hooked_queue{nullptr};
+bool  g_exec_event_faulted{false};
+std::atomic<uint64_t> g_exec_dispatches{0};
+
+using ExecuteCommandListsFn = void(__stdcall*)(void*, UINT, void* const*);
+
+// NO LOCK ON THIS PATH. ExecuteCommandLists is the hottest call in the renderer, and taking g_mtx
+// here put every submission behind the same mutex the config store and the addon's own
+// get_config_value use -- which stalled a save load into unusable churn. The subscriber list is
+// written once at registration and read thousands of times a second, so it is snapshotted into a
+// fixed array and guarded by an atomic count: zero subscribers costs one relaxed load.
+constexpr int kMaxExecSubs = 8;
+void* g_exec_subs[kMaxExecSubs]{};
+std::atomic<int> g_exec_sub_count{0};
+
+void rebuild_exec_subscribers() {           // called under g_mtx, off the hot path
+    int n = 0;
+    for (const auto& e : g_events) {
+        if (e.id != 72) continue;
+        for (void* fn : e.fns) {
+            if (n < kMaxExecSubs) g_exec_subs[n++] = fn;
+        }
+    }
+    g_exec_sub_count.store(n, std::memory_order_release);
+}
+
+void dispatch_execute_command_list(UINT count, void* const* lists) {
+    const int subs = g_exec_sub_count.load(std::memory_order_acquire);
+    if (subs == 0 || g_exec_event_faulted || lists == nullptr) return;
+    if (!DlssNeuralRendering::get()->exec_event_enabled()) return;
+
+    for (UINT i = 0; i < count; ++i) {
+        if (lists[i] == nullptr) continue;
+        g_native_cmdlist = reinterpret_cast<uint64_t>(lists[i]);
+        for (int k = 0; k < subs; ++k) {
+            if (!invoke_execute_guarded(reinterpret_cast<ExecuteListFn>(g_exec_subs[k]))) {
+                g_exec_event_faulted = true;
+                spdlog::error("[DLSSNR] execute_command_list callback faulted; disabled");
+                return;
+            }
+        }
+    }
+    g_exec_dispatches.fetch_add(1, std::memory_order_relaxed);
+}
+
+void __stdcall hooked_execute_command_lists(void* queue, UINT count, void* const* lists) {
+    dispatch_execute_command_list(count, lists);
+    reinterpret_cast<ExecuteCommandListsFn>(g_queue_orig_vt[kExecuteListsSlot])(queue, count, lists);
+}
+
+int copy_queue_vtable(void* q) {                       // POD only; SEH cannot share a C++ frame
+    __try {
+        void** vt = *reinterpret_cast<void***>(q);
+        if (vt == nullptr) return 1;
+        if (vt == g_queue_our_vt) return 2;
+        memcpy(g_queue_orig_vt, vt, sizeof(g_queue_orig_vt));
+        memcpy(g_queue_our_vt, vt, sizeof(g_queue_our_vt));
+        return 0;
+    } __except (EXCEPTION_EXECUTE_HANDLER) { return 3; }
+}
+
+void hook_queue_execute(void* q) {
+    if (q == nullptr || q == g_hooked_queue) return;
+    const int r = copy_queue_vtable(q);
+    if (r == 2) { g_hooked_queue = q; return; }
+    if (r != 0) {
+        spdlog::error("[DLSSNR] cannot read the command queue vtable ({})", r);
+        g_hooked_queue = q;
+        return;
+    }
+    g_queue_our_vt[kExecuteListsSlot] = reinterpret_cast<void*>(&hooked_execute_command_lists);
+    *reinterpret_cast<void***>(q) = g_queue_our_vt;
+    g_hooked_queue = q;
+    spdlog::info("[DLSSNR] watching ExecuteCommandLists on queue {} for addon_event 72", q);
+}
 
 // SEH cannot share a frame with C++ unwinding, hence the separate functions. The guard is the
 // point: this runs on the present thread every frame, calling a third-party binary through an
@@ -716,15 +1145,66 @@ bool invoke_present_guarded(PresentFn fn) {
     __try { fn(g_fake_queue, g_fake_swap, nullptr, nullptr, 0, nullptr); return true; }
     __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
 }
+// Preserve the actual fault site. The last stub is only a breadcrumb: an addon
+// may call supported functions between that stub and the instruction that faults.
+int report_overlay_exception(EXCEPTION_POINTERS* ep) {
+    if (ep == nullptr || ep->ExceptionRecord == nullptr) return EXCEPTION_EXECUTE_HANDLER;
+    const auto* record = ep->ExceptionRecord;
+    HMODULE module = nullptr;
+    char path[MAX_PATH]{};
+    const auto address = reinterpret_cast<uintptr_t>(record->ExceptionAddress);
+    GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                          GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                      reinterpret_cast<LPCSTR>(record->ExceptionAddress), &module);
+    if (module != nullptr) GetModuleFileNameA(module, path, MAX_PATH);
+    const auto offset = module ? address - reinterpret_cast<uintptr_t>(module) : 0;
+    const bool memory_fault = (record->ExceptionCode == EXCEPTION_ACCESS_VIOLATION ||
+                               record->ExceptionCode == EXCEPTION_IN_PAGE_ERROR) &&
+                              record->NumberParameters >= 2;
+    spdlog::error("[DLSSNR-UI-FAULT] code={:#x} address={:#x} module={} offset={:#x} "
+                  "memory_fault={} access={} target={:#x} last_stub={}",
+                  record->ExceptionCode, address, module ? path : "unknown", offset,
+                  memory_fault, memory_fault ? record->ExceptionInformation[0] : 0,
+                  memory_fault ? record->ExceptionInformation[1] : 0,
+                  static_cast<uint32_t>(g_last_imgui_slot));
+    return EXCEPTION_EXECUTE_HANDLER;
+}
+
 bool invoke_overlay_guarded(void (*fn)(void*)) {
     g_last_imgui_slot = 0xFFFFFFFFu;
-    __try { fn(g_fake_runtime); return true; }
-    __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+    addon_ui::begin_font_callback();
+    const auto depth = addon_ui::font_scope_depth();
+    const auto colors = addon_ui::color_depth;
+    const auto disabled = addon_ui::disabled_depth;
+    bool ok = false;
+    __try { fn(g_fake_runtime); ok = true; }
+    __except (report_overlay_exception(GetExceptionInformation())) { ok = false; }
+    addon_ui::end_tooltip(); // close an addon-owned tooltip left open by a fault
+    addon_ui::restore_disabled(disabled);
+    addon_ui::restore_font_scopes(depth);
+    addon_ui::restore_colors(colors);
+    return ok;
 }
 bool invoke_init_device_guarded(void (*fn)(void*)) {
     __try { fn(g_fake_dev); return true; }
     __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
 }
+// ReShade calls an addon's exported AddonInit(addon, reshade) after loading it, and an addon may do
+// ALL of its real setup there. RenoDX's does everything in DllMain, so this was never needed and
+// never noticed -- CheekyFoveatedDLSS registered, then subscribed to nothing and logged nothing,
+// because its overlay and both event registrations live behind this call.
+using AddonInitFn = bool (*)(HMODULE, HMODULE);
+using AddonUninitFn = void (*)(HMODULE, HMODULE);
+
+bool invoke_addon_init_guarded(AddonInitFn fn, HMODULE addon, HMODULE self, bool* ok) {
+    __try { *ok = fn(addon, self); return true; }
+    __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+bool invoke_addon_uninit_guarded(AddonUninitFn fn, HMODULE addon, HMODULE self) {
+    __try { fn(addon, self); return true; }
+    __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+
 bool invoke_destroy_device_guarded(void (*fn)(void*)) {
     __try { fn(g_fake_dev); return true; }
     __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
@@ -920,24 +1400,31 @@ std::atomic<bool> g_last_first_eye{true};
 // both eyes covers a DIFFERENT piece of the world in each, so it reads as one box per eye rather
 // than a single fused one. That is not a stereo-consistency win; it is the thing convergence exists
 // to correct, and dropping it from the centre box was a regression.
-void apply_region(void* params, float coverage, float height_frac, float convergence_pct,
+void apply_region(void* params, float coverage, float height_frac,
                   bool nasal, bool swap_eyes) {
     const Rect out = read_subrect(params, "Output");
     if (!out.valid) return;
 
-    // UPSCALING MODE: colour arrives smaller than output (848x864 into 2544x2592). Rewriting the
-    // subrects across planes of different scales was rejected by the snippet as an invalid
-    // Color/Output configuration -- silently -- which switched neural rendering off entirely.
-    // Leaving the region alone keeps NR working unfoveated, which is strictly better than
-    // foveation that costs you the effect.
+    // THE INPUT PLANE IS THE REFERENCE, NOT THE OUTPUT. Previously the region was chosen in Output
+    // space and every other plane derived from it by rounded fractions. At scale 1 that is fine, but
+    // under upscaling (colour 848x864 into output 2544x2592) rounding each plane independently
+    // yields a Color/Output pair whose ratio is not exactly the scale DLSS was created with, and the
+    // snippet rejects the evaluation SILENTLY -- which is why the region had to be abandoned in
+    // upscaling mode and why "neural upscaling is broke".
+    //
+    // CheekyFoveatedDLSS derives it the other way and it is the correct way: choose the rect in
+    // input space, then map it to the output with FLOOR on the start and CEIL on the end, so the
+    // output rect always fully covers the input region instead of landing a fraction of a pixel
+    // inside it. At scale 1 this reduces to the exact integers used before, so the working
+    // full-resolution path is unchanged.
     const Rect col = read_subrect(params, "Color");
+    const Rect ref = col.valid ? col : out;
     if (col.valid && (col.w != out.w || col.h != out.h)) {
         static std::atomic<bool> s_said{false};
         bool e = false;
         if (s_said.compare_exchange_strong(e, true))
-            spdlog::warn("[DLSSNR-FOV] upscaling active (colour {}x{} -> output {}x{}); leaving the "
-                         "region alone so NR keeps working", col.w, col.h, out.w, out.h);
-        return;
+            spdlog::info("[DLSSNR-FOV] upscaling active (colour {}x{} -> output {}x{}); deriving the "
+                         "output rect by floor/ceil from the input", col.w, col.h, out.w, out.h);
     }
 
     // ASK UEVR WHICH EYE THIS IS. Nasal anchoring is mirrored, so getting the eye backwards puts
@@ -976,37 +1463,59 @@ void apply_region(void* params, float coverage, float height_frac, float converg
     if (swap_eyes) left_eye = !left_eye;
     g_last_first_eye.store(left_eye, std::memory_order_relaxed);
 
-    uint32_t w = align8_down(static_cast<uint32_t>(out.w * coverage));
-    uint32_t h = align8_down(static_cast<uint32_t>(out.h * height_frac));
-    if (w < 64 || w > out.w || h < 64 || h > out.h) return;
+    uint32_t w = align8_down(static_cast<uint32_t>(ref.w * coverage));
+    uint32_t h = align8_down(static_cast<uint32_t>(ref.h * height_frac));
+    if (w < 64 || w > ref.w || h < 64 || h > ref.h) return;
 
     // Horizontal placement: nasal-anchored, or centred and converged toward the nose.
     int x;
     if (nasal) {
-        x = left_eye ? static_cast<int>(out.w - w) : 0;
+        x = left_eye ? static_cast<int>(ref.w - w) : 0;
     } else {
-        const int shift = static_cast<int>((left_eye ? convergence_pct : -convergence_pct) * out.w);
-        x = static_cast<int>(align8_down((out.w - w) / 2)) + shift;
-        x = std::max<int>(0, std::min<int>(x, static_cast<int>(out.w - w)));
+        // NO PER-EYE SHIFT. The CyberpunkVR port offsets centre boxes by 4% of eye width, mirrored,
+        // to align them on the same WORLD region. That is right when the region's boundary is
+        // invisible; ours is a hard edge, and 4% puts the two edges 202 px apart on a 2544 px eye --
+        // roughly 8% of the FOV, far outside fusion range -- so the border is perceived twice and
+        // the user sees two boxes with a seam. Identical image coordinates in both eyes fuse as a
+        // single window, which is the whole point of a centre box.
+        //
+        // This is deliberately NOT a setting. It was one, defaulted to 0.04, and because config.txt
+        // already carried that key a changed default was inert -- three runs were spent testing a
+        // value that never moved. Re-introduce a shift only together with a feathered edge, which is
+        // what stops the boundary being a fusable feature at all.
+        x = static_cast<int>(align8_down((ref.w - w) / 2));
     }
-    const uint32_t y = align8_down((out.h - h) / 2);
-
-    // Normalised against the output plane, so every other plane lands on the same world region
-    // whatever its resolution -- full-size colour, third-size guides, or an upscaling input.
-    const double fx = (double)x / out.w, fw = (double)w / out.w;
-    const double fy = (double)y / out.h, fh = (double)h / out.h;
+    const uint32_t y = align8_down((ref.h - h) / 2);
 
     for (const char* plane : kRewritePlanes) {
         const Rect r = read_subrect(params, plane);
         if (!r.valid) continue;
 
-        uint32_t px = r.x + (uint32_t)(fx * r.w + 0.5);
-        uint32_t pw = (uint32_t)(fw * r.w + 0.5);
-        uint32_t py = r.y + (uint32_t)(fy * r.h + 0.5);
-        uint32_t ph = (uint32_t)(fh * r.h + 0.5);
+        uint32_t px, py, pw, ph;
+        if (r.w == ref.w && r.h == ref.h) {
+            px = r.x + static_cast<uint32_t>(x); pw = w;      // same scale: exact, no rounding
+            py = r.y + y;                        ph = h;
+        } else {
+            const double sx = static_cast<double>(r.w) / ref.w;
+            const double sy = static_cast<double>(r.h) / ref.h;
+            const uint32_t bx = static_cast<uint32_t>(std::floor(x * sx));
+            const uint32_t ex = std::min<uint32_t>(r.w, static_cast<uint32_t>(std::ceil((x + w) * sx)));
+            const uint32_t by = static_cast<uint32_t>(std::floor(y * sy));
+            const uint32_t ey = std::min<uint32_t>(r.h, static_cast<uint32_t>(std::ceil((y + h) * sy)));
+            px = r.x + bx; pw = ex > bx ? ex - bx : 0u;
+            py = r.y + by; ph = ey > by ? ey - by : 0u;
+        }
         if (pw < 8 || ph < 8) continue;
         if (px + pw > r.x + r.w) pw = r.x + r.w - px;
         if (py + ph > r.y + r.h) ph = r.y + r.h - py;
+
+        // Under upscaling the evaluation was rejected with 0xbad00005 and the reason is not yet
+        // known. Log the exact quadruple written to every plane for the first few applications so
+        // the next run answers it instead of another hypothesis.
+        static std::atomic<uint64_t> s_upscale_dumps{0};
+        if (ref.w != out.w && s_upscale_dumps.fetch_add(1, std::memory_order_relaxed) < 16)
+            spdlog::info("[DLSSNR-FOV] upscale plane {}: wrote ({},{}) {}x{} into {}x{} (was ({},{}) {}x{})",
+                         plane, px, py, pw, ph, r.w, r.h, r.x, r.y, r.w, r.h);
 
         char n[64];
         subrect_name(n, plane, "BaseX");  nr_set_uint(params, n, px);
@@ -1775,6 +2284,7 @@ void foveal_prehook(ID3D12GraphicsCommandList* list, void* params) {
     // would be undefined. Nothing may propagate out of here.
     try {
         const uint64_t n = g_nr_evals.fetch_add(1, std::memory_order_relaxed) + 1;
+        g_nr_last_eval_ms.store(GetTickCount64(), std::memory_order_relaxed);
         g_nr_eval_ticks.fetch_add(1, std::memory_order_relaxed);
         if ((n % 601) == 0 || (n % 601) == 1) {
             ID3D12Resource* o = recorded_resource("out");
@@ -1798,8 +2308,7 @@ void foveal_prehook(ID3D12GraphicsCommandList* list, void* params) {
             // two views agree. Stereo Slab keeps full height and anchors toward the nose per eye.
             const float pct = mod->preset_percent();
             const bool slab = mod->preset_is_slab();
-            apply_region(params, pct, slab ? 1.0f : pct,
-                         mod->convergence_pct(), /*nasal=*/slab, mod->swap_eyes());
+            apply_region(params, pct, slab ? 1.0f : pct, /*nasal=*/slab, mod->swap_eyes());
             if (mod->refresh_periphery_enabled()) refresh_periphery(list, params);
 
             if (mod->close_probe_enabled()) {
@@ -2043,8 +2552,9 @@ extern "C" __declspec(dllexport) void ReShadeUnregisterAddon(HMODULE addon) {
 extern "C" __declspec(dllexport) void ReShadeRegisterEvent(uint32_t ev, void* cb) {
     if (!hosting()) { if (auto fn = forwarded<void(*)(uint32_t, void*)>("ReShadeRegisterEvent")) fn(ev, cb); return; }
     std::lock_guard lock(g_mtx);
-    for (auto& e : g_events) if (e.id == ev) { e.fns.push_back(cb); return; }
+    for (auto& e : g_events) if (e.id == ev) { e.fns.push_back(cb); rebuild_exec_subscribers(); return; }
     g_events.push_back(EventSub{ev, {cb}});
+    rebuild_exec_subscribers();
     spdlog::info("[DLSSNR] addon subscribed to event {} ({})", ev,
                  ev == 0 ? "init_device" : ev == 1 ? "destroy_device" : ev == 74 ? "present" : "?");
 }
@@ -2053,6 +2563,7 @@ extern "C" __declspec(dllexport) void ReShadeUnregisterEvent(uint32_t ev, void* 
     if (!hosting()) { if (auto fn = forwarded<void(*)(uint32_t, void*)>("ReShadeUnregisterEvent")) fn(ev, cb); return; }
     std::lock_guard lock(g_mtx);
     for (auto& e : g_events) if (e.id == ev) std::erase(e.fns, cb);
+    rebuild_exec_subscribers();
 }
 
 extern "C" __declspec(dllexport) void ReShadeRegisterOverlay(const char* title, void* cb) {
@@ -2081,6 +2592,8 @@ void ReShadeLogMessage(HMODULE module, uint32_t level, const char* message) {
                        ? reinterpret_cast<const char*>(module) : nullptr;
     if (!text) return;
     spdlog::info("[addon] {}", text);
+    if (contains_ci(text, "captured first loaded-module D3D12 reconstruction evaluation"))
+        g_sr_evaluation_observed.store(true, std::memory_order_relaxed);
 
     // The thunk gives up the return value to keep the addon's return address on the stack, so the
     // addon's own reporting is where evaluation results come from now. It says either
@@ -2210,6 +2723,9 @@ void DlssNeuralRendering::on_config_save(utility::Config& cfg) {
 // The addon's detours target NGX, so it must not be loaded before NGX is in the process; and
 // init_device cannot be delivered before the device exists. Both arrive later than mod init.
 void DlssNeuralRendering::load_addons_once() {
+    // Framework only dispatches mod reset once game-data initialization is
+    // complete. Do not retain backbuffers before that teardown path exists.
+    if (!g_framework->is_game_data_intialized()) return;
     if (!m_enabled->value() || m_device_delivered) return;
     if (!GetModuleHandleW(L"_nvngx.dll") && !GetModuleHandleW(L"nvngx_dlssnr.dll")) return;
 
@@ -2218,14 +2734,38 @@ void DlssNeuralRendering::load_addons_once() {
     if (dev == nullptr) return;
 
     if (forward_target() != nullptr) {
+        // ONCE, not every frame. This runs on the present path, so warning here unconditionally
+        // wrote a line per present -- measured in TOW2 with a real ReShade installed: 3,871 lines,
+        // 36 per second, 40% of the entire log, and a synchronous file write in the frame loop.
+        // The condition never changes within a session: either a ReShade is forwarding or it is not.
         strncpy_s(g_last_error, "a real ReShade is loaded; standing down so addons are not hosted twice", _TRUNCATE);
-        spdlog::warn("[DLSSNR] {}", g_last_error);
+        static std::atomic<bool> s_said{false};
+        bool expected = false;
+        if (s_said.compare_exchange_strong(expected, true)) {
+            spdlog::warn("[DLSSNR] {}", g_last_error);
+        }
         return;
     }
 
     g_native_dev   = reinterpret_cast<uint64_t>(dev);
     g_native_queue = reinterpret_cast<uint64_t>(hook->get_command_queue());
     g_native_swap  = reinterpret_cast<uint64_t>(hook->get_swap_chain());
+    {
+        std::lock_guard lock(g_mtx);
+        if (!g_swapchain.bind(hook->get_swap_chain())) {
+            strncpy_s(g_last_error, "cannot acquire native swapchain buffers", _TRUNCATE);
+            return;
+        }
+        spdlog::info("[DLSSNR] native swapchain snapshot: {} buffers, current {}",
+                     g_swapchain.count(), g_swapchain.index());
+    }
+    // Gated on the toggle at INSTALL time, not just at dispatch. Leaving the vtable swapped and
+    // only skipping the callback still routes every submission through our thunk, so the toggle
+    // could never actually clear the submit path for an isolation test.
+    if (m_exec_event->value())
+        hook_queue_execute(reinterpret_cast<void*>(g_native_queue));
+    else
+        spdlog::info("[DLSSNR] execute-command-list event OFF; queue left unhooked");
 
     if (m_load_attempted) {          // library already in the process; only the device is new
         std::lock_guard lock(g_mtx);
@@ -2260,8 +2800,24 @@ void DlssNeuralRendering::load_addons_once() {
                           f.path().filename().string(), GetLastError());
             continue;
         }
+        HMODULE addon = GetModuleHandleW(f.path().c_str());
         spdlog::info("[DLSSNR] loaded {} -- {}", f.path().filename().string(),
                      g_addons_registered > before ? "registered" : "did NOT register");
+
+        if (addon != nullptr) {
+            if (auto init = reinterpret_cast<AddonInitFn>(GetProcAddress(addon, "AddonInit"))) {
+                HMODULE self{nullptr};
+                GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                                   GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                                   reinterpret_cast<LPCWSTR>(&forward_target), &self);
+                bool ok = false;
+                if (!invoke_addon_init_guarded(init, addon, self, &ok))
+                    spdlog::error("[DLSSNR] AddonInit faulted in {}", f.path().filename().string());
+                else
+                    spdlog::info("[DLSSNR] AddonInit returned {}", ok ? "true" : "false");
+                if (ok) g_addon_uninit_targets.push_back(addon);
+            }
+        }
     }
     if (found == 0) {
         strncpy_s(g_last_error, "no *.addon64 beside the game executable", _TRUNCATE);
@@ -2368,7 +2924,22 @@ void DlssNeuralRendering::install_ngx_probe() {
 // Delivered on device reset and at teardown. Guarded twice over: once so it cannot fire without a
 // matching init_device, and once by SEH, because by teardown the addon may already be partway
 // through its own unload.
+void DlssNeuralRendering::deliver_addon_uninit() {
+    for (HMODULE m : g_addon_uninit_targets) {
+        if (auto un = reinterpret_cast<AddonUninitFn>(GetProcAddress(m, "AddonUninit"))) {
+            HMODULE self{nullptr};
+            GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                               GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                               reinterpret_cast<LPCWSTR>(&forward_target), &self);
+            if (!invoke_addon_uninit_guarded(un, m, self))
+                spdlog::error("[DLSSNR] AddonUninit faulted");
+        }
+    }
+    g_addon_uninit_targets.clear();
+}
+
 void DlssNeuralRendering::deliver_destroy_device() {
+    destroy_lifecycle(true);
     std::lock_guard lock(g_mtx);
     if (!m_device_delivered) return;
     m_device_delivered = false;
@@ -2381,9 +2952,12 @@ void DlssNeuralRendering::deliver_destroy_device() {
         }
     }
     g_present_calls = 0;
+    g_swapchain.reset();
 }
 
 DlssNeuralRendering::~DlssNeuralRendering() {
+    destroy_lifecycle(false);
+    deliver_addon_uninit();
     save_addon_config();          // a change made in the last two seconds is still unwritten
     deliver_destroy_device();
 }
@@ -2396,6 +2970,7 @@ DlssNeuralRendering::~DlssNeuralRendering() {
 // Evidence: the last box application is one second BEFORE destroy_device, while NR keeps creating
 // features for minutes afterwards. Re-arm so the next evaluation re-installs it.
 void DlssNeuralRendering::reset_ngx_probe() {
+    g_nr_last_eval_ms.store(0, std::memory_order_relaxed);
     const HMODULE now = GetModuleHandleW(L"nvngx_dlssnr.dll");
     if (g_nr_hooked.load(std::memory_order_relaxed)) {
         // Only unhook when the module is still the one we patched. If it reloaded or unloaded,
@@ -2422,12 +2997,16 @@ void DlssNeuralRendering::reset_ngx_probe() {
 void DlssNeuralRendering::on_device_reset() {
     reset_ngx_probe();
     deliver_destroy_device();
+    // Also release a snapshot acquired before device initialization completed.
+    { std::lock_guard lock(g_mtx); g_swapchain.reset(); }
     g_native_dev = g_native_queue = g_native_swap = 0;
     g_present_faulted = false;
 }
 
 void DlssNeuralRendering::on_present() {
     load_addons_once();
+    if (m_device_delivered && !initialize_lifecycle()) return;
+    install_nr_ngx_gate_probes();
     install_ngx_probe();
     accumulate_frame_time(m_foveate->value() && g_nr_hooked.load(std::memory_order_relaxed));
     g_eval_in_frame.store(0, std::memory_order_relaxed);   // eye index is per frame
@@ -2449,15 +3028,54 @@ void DlssNeuralRendering::on_present() {
             }
         }
         const auto n = ++g_present_calls;
+        if (n == 600 || n % 3600 == 0)
+            spdlog::info("[DLSSNR-NGX-GATE] totals entry={} mode={} inputs={} native-wrapper={} wrapper-rejected={}",
+                g_nr_ngx_counts[0].load(), g_nr_ngx_counts[1].load(), g_nr_ngx_counts[2].load(),
+                g_nr_ngx_counts[3].load(), g_nr_ngx_tag_rejected.load());
         if (n == 1 || n == 60 || n == 600)
             spdlog::info("[DLSSNR] present delivered {} time(s)", n);
     }
 }
 
+// MENU STRUCTURE -- the rule, so it stops drifting every time something is added:
+//
+//   "Neural rendering"   ONLY things owned by the addon: what registered, what it built, its own
+//                        settings page, and the values we persist on its behalf.
+//   "Foveated rendering" ONLY things owned by us: the detour, the region, the measurement, and our
+//                        own diagnostics.
+//
+// No control appears on both pages. No text says "below" or "above" for something that lives on the
+// other page -- it names the page instead. Anything gated says which page unlocks it. Instructions
+// that pointed "below" at controls which had moved pages is exactly how this got confusing.
 void DlssNeuralRendering::on_draw_sidebar_entry(std::string_view entry) {
     const bool addon_page = (entry == kPageNeural);
     const bool hooked = g_nr_hooked.load(std::memory_order_relaxed);
     const bool refused = g_nr_tamper_suspected.load(std::memory_order_relaxed);
+    const ImVec4 green(0.4f, 0.95f, 0.5f, 1.0f);
+    const ImVec4 amber(1.0f, 0.8f, 0.3f, 1.0f);
+    const bool sr_seen = g_sr_evaluation_observed.load(std::memory_order_relaxed);
+    ImGui::TextColored(sr_seen ? green : amber, "%s", sr_seen
+        ? "DLSS SR/AA/RR: reconstruction hook observed an evaluation this session"
+        : "DLSS SR/AA/RR: no intercepted evaluation observed");
+    ImGui::TextDisabled("SR status is session evidence, not proof an override changed the image.");
+    const auto evaluations = g_nr_evals.load(std::memory_order_relaxed);
+    const auto last_eval = g_nr_last_eval_ms.load(std::memory_order_relaxed);
+    const bool recent = last_eval != 0 && GetTickCount64() - last_eval < 2000;
+    if (refused || g_lifecycle_failed || g_present_faulted) {
+        ImGui::TextColored(ImVec4(1, 0.4f, 0.3f, 1), "DLSS NR: blocked/faulted -- see diagnostics");
+    } else if (recent) {
+        ImGui::TextColored(green, "DLSS NR: evaluation calls active (%llu)",
+                           static_cast<unsigned long long>(evaluations));
+    } else if (evaluations != 0) {
+        ImGui::TextColored(amber, "DLSS NR: evaluated earlier; no recent activity (%llu calls)",
+                           static_cast<unsigned long long>(evaluations));
+    } else {
+        ImGui::TextColored(amber, "%s", hooked
+            ? "DLSS NR: hook attached, but ZERO evaluation calls"
+            : "DLSS NR: evaluation hook not attached");
+    }
+    ImGui::TextDisabled("NR counts calls, not successful output. DLL loading alone never turns it green.");
+    ImGui::Separator();
 
     // ---- status -----------------------------------------------------------------------------
     if (g_addons_registered > 0) {
@@ -2579,11 +3197,19 @@ void DlssNeuralRendering::on_draw_sidebar_entry(std::string_view entry) {
     // ---- the foveal box ---------------------------------------------------------------------
     ImGui::Separator();
     if (!hooked) {
-        ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.4f, 1.0f), "Foveal controls hidden: no NGX detour.");
-        ImGui::TextWrapped(
-            "Neural rendering is off, so nvngx_dlssnr.dll is not loaded and there is nothing to "
-            "detour. Turn on \"Enable DLSS Neural Rendering\" in Addon settings below; the detour "
-            "installs a second later and these controls appear. No restart needed.");
+        ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.4f, 1.0f), "Region controls unavailable.");
+        if (!m_probe_ngx->value()) {
+            ImGui::TextWrapped(
+                "\"Detour NGX for our foveal region\" is off -- see Setup below. It takes effect on "
+                "the next launch, and nothing here can work without it. Leave it off if you are "
+                "running an addon that does its own foveation.");
+        } else {
+            ImGui::TextWrapped(
+                "Waiting for neural rendering to start. nvngx_dlssnr.dll only loads once NR is "
+                "running, and there is nothing to detour until then. Switch it on from the addon's "
+                "own controls on the \"Neural rendering\" page; the detour installs a second later "
+                "and these controls appear. No restart needed.");
+        }
     } else {
         m_foveate->draw("Restrict neural rendering to a region");
 
@@ -2601,7 +3227,7 @@ void DlssNeuralRendering::on_draw_sidebar_entry(std::string_view entry) {
                                 "cheapest option. Below 50%% the two eyes cannot share one region, "
                                 "so expect to see it per eye rather than fused.",
                                 pct * 100.0f, pct * 100.0f, pct * pct * 100.0f);
-            m_convergence_pct->draw("Stereo convergence");
+
             ImGui::TextDisabled("Mirrored nudge toward the nose. Helps a little; it cannot make "
                                 "small regions fuse.");
         }
@@ -2653,11 +3279,17 @@ void DlssNeuralRendering::on_draw_sidebar_entry(std::string_view entry) {
             "here: a dxgi proxy stops UEVR injecting, and ReShade's OpenXR layer declines any "
             "session created without a device it wrapped.");
         m_enabled->draw("Host addons in-process");
-        m_probe_ngx->draw("Detour NGX EvaluateFeature");
+        m_probe_ngx->draw("Detour NGX for our foveal region");
+        ImGui::TextDisabled("Required for the region -- it is how the subrects are rewritten. Turn "
+                            "it OFF when hosting an addon that hooks NGX itself, or two detours "
+                            "land on the same export.");
         ImGui::TextDisabled("Both take effect on the next launch. The detour is what the box needs.");
         m_refresh_periphery->draw("Keep the area outside the box live");
         ImGui::TextDisabled("Without it the periphery shows a frozen frame.");
         m_dispatch_present->draw("Deliver the per-frame present event");
+        m_exec_event->draw("Deliver the execute-command-list event");
+        ImGui::TextDisabled("Needed by addons that add work to the game's command lists. Fires on "
+                            "every submission -- switch it off if the game stalls.");
         m_draw_addon_ui->draw("Show the addon's own settings below");
     }
 
@@ -2665,6 +3297,9 @@ void DlssNeuralRendering::on_draw_sidebar_entry(std::string_view entry) {
     if (ImGui::CollapsingHeader("Diagnostics")) {
         ImGui::Text("Frames delivered: %llu", (unsigned long long)g_present_calls);
         ImGui::Text("Periphery copies: %llu", (unsigned long long)g_copies.load(std::memory_order_relaxed));
+        ImGui::Text("execute_command_list dispatches: %llu%s",
+                    (unsigned long long)g_exec_dispatches.load(std::memory_order_relaxed),
+                    g_exec_event_faulted ? "  (faulted, disabled)" : "");
         ImGui::Text("Addon reported succeeded %llu, refused %llu",
                     (unsigned long long)g_nr_ok.load(std::memory_order_relaxed),
                     (unsigned long long)g_nr_bad.load(std::memory_order_relaxed));

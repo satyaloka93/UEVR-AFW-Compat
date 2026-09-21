@@ -32,6 +32,10 @@ Explicitly cleared of blame (can be re-enabled without reproducing the issue):
 
 # Delivery mechanisms, in preference order
 
+For the 2026-09 TOW2 build, UEngine::Exec discovery fails. The
+[validated CVar candidate](tow2-validated-cvar-access.md) applies only VSM=0
+by default and logs the actual readback; live visual confirmation is pending.
+
 1. `user_script.txt` via UE console exec — normal path.
 2. Game `Engine.ini` — fallback when the executable can't resolve
    `UEngine::Exec` (AFW-branch TOW2; INI backed up first).

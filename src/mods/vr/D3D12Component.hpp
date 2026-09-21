@@ -206,6 +206,11 @@ private:
         XrGraphicsBindingD3D12KHR binding{XR_TYPE_GRAPHICS_BINDING_D3D12_KHR};
 
         struct SwapchainContext {
+            struct Timing {
+                uint64_t copies{}, samples{};
+                double acquire_ms{}, wait_ms{}, context_ms{}, gpu_ms{}, gpu_max_ms{};
+                std::chrono::steady_clock::time_point since{std::chrono::steady_clock::now()};
+            } timing;
             std::vector<XrSwapchainImageD3D12KHR> textures{};
             std::vector<std::unique_ptr<d3d12::TextureContext>> texture_contexts{};
             uint32_t num_textures_acquired{0};

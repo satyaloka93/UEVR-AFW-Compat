@@ -3,8 +3,12 @@
 #include <optional>
 #include <memory>
 #include <string>
+#include <atomic>
+#include <chrono>
+#include <deque>
 
 #include <sdk/CVar.hpp>
+#include "PerformanceCVars.hpp"
 
 #include "../../Mod.hpp"
 
@@ -19,6 +23,8 @@ public:
     void on_frame() override;
     void display_console();
     void on_config_load(const utility::Config& cfg, bool set_defaults) override;
+    void on_config_save(utility::Config& cfg) override;
+    static bool uses_validated_access();
 
     void dump_commands();
     void spawn_console();
@@ -68,6 +74,7 @@ public:
         virtual void freeze() = 0;
         virtual void update() = 0;
         virtual void draw_ui() = 0;
+        virtual bool is_performance_entry() const { return false; }
 
         void unfreeze() {
             m_frozen = false;
@@ -170,9 +177,41 @@ public:
         std::optional<sdk::ConsoleVariableDataWrapper> m_cvar_data;
     };
 
+    // TOW2 uses verified interfaces for BOTH old standard and raw-data entries.
+    // UI reads snapshots; engine access and setters remain on the game thread.
+    class CVarValidated : public CVar {
+    public:
+        CVarValidated(const CVar& source, bool data) : CVar{source}, m_data_config{data} {}
+        CVarValidated(const CVar& source, const performance_cvars::Entry* entry)
+            : CVar{source}, m_performance_entry{entry} {}
+        bool is_performance_entry() const override { return m_performance_entry != nullptr; }
+        int status() const { return m_status.load(); }
+        const auto* performance_entry() const { return m_performance_entry; }
+        void load(bool defaults) override;
+        void save() override;
+        void freeze() override;
+        void update() override;
+        void draw_ui() override;
+    private:
+        bool m_data_config{};
+        const performance_cvars::Entry* m_performance_entry{};
+        bool m_attempted{};
+        sdk::IConsoleVariable* m_variable{};
+        std::atomic<int> m_status{0}; // pending, available, unsupported, failed, absent
+        std::atomic<int> m_int{};
+        std::atomic<float> m_float{};
+        bool m_editing{};
+        int m_edit_int{};
+        float m_edit_float{};
+        const char* config_name() const { return m_data_config ? "cvars_data.txt" : "cvars_standard.txt"; }
+    };
+
 private:
     std::vector<std::shared_ptr<CVar>> m_displayed_cvars{};
     std::vector<std::shared_ptr<CVar>> m_all_cvars{}; // ones the user can manually add to cvars.txt'
+    std::vector<std::shared_ptr<CVarValidated>> m_performance_cvars{};
+    size_t m_performance_next{};
+    std::chrono::steady_clock::time_point m_performance_poll{};
 
     std::shared_ptr<CVar> m_hzbo{};
 
@@ -196,7 +235,14 @@ private:
     
     bool m_wants_display_console{false};
     bool m_native_console_spawned{false};
-    bool m_should_execute_console_script{false};
+    const ModToggle::Ptr m_auto_user_script{ModToggle::create("CVar_AutoApplyUserScript", false)};
+    bool m_should_execute_console_script{false}; // game-thread owned
+    std::deque<std::string> m_script_lines{};
+    std::atomic<size_t> m_script_remaining{0};
+    void process_script_line(sdk::UGameEngine* engine);
+    std::chrono::steady_clock::time_point m_validated_start{};
+    std::chrono::steady_clock::time_point m_validated_poll{};
+    size_t m_validated_next{};
 
     static inline std::vector<std::shared_ptr<CVarStandard>> s_default_standard_cvars {
         // Bools

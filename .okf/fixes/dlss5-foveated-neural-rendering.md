@@ -174,7 +174,7 @@ The mask gates the **effect, not the compute**: cost is unchanged inside the box
 
 # What transfers to the CyberpunkVR port
 
-The port reaches [exactly one eye, permanently](../projects/cyberpunk-vr-port.md), because MAIN and
+The [CyberpunkVR Port](https://github.com/satyaloka93/cyberpunk-vr-port) reaches exactly one eye, permanently, because MAIN and
 VRCAM render into separate resources and the addon's cache holds one slot.
 
 * **The caller check is beatable.** That bundle's "permanently disabled (state -4)" conclusion should

@@ -28,6 +28,7 @@
 #include "utility/Logging.hpp"
 
 #include "VR.hpp"
+#include "vr/AfwCopyLayout.hpp"
 #include <safetyhook.hpp>
 
 NVSDK_NGX_Result hk_NVSDK_NGX_D3D12_CreateFeature(
@@ -61,10 +62,10 @@ NVSDK_NGX_Result hk_NVSDK_NGX_D3D12_EvaluateFeature(
     // The NGX detour remains installed so AFW can be selected live, but its
     // resource discovery/copy path must be dormant outside AFW.
     if (vr->is_using_afw() && !vr->vrNoneDLSSHandleMap.contains((NVSDK_NGX_Handle*)InFeatureHandle)) {
-        ID3D12Resource* color;
-        ID3D12Resource* depth;
-        ID3D12Resource* motionVectors;
-        ID3D12Resource* output;
+        ID3D12Resource* color{};
+        ID3D12Resource* depth{};
+        ID3D12Resource* motionVectors{};
+        ID3D12Resource* output{};
         float mvScale[2] = {1.0, 1.0};
         InParameters->Get(NVSDK_NGX_Parameter_Color, &color);
         InParameters->Get(NVSDK_NGX_Parameter_Depth, &depth);
@@ -77,12 +78,12 @@ NVSDK_NGX_Result hk_NVSDK_NGX_D3D12_EvaluateFeature(
         if (vr->rawDepthTex != depth) {
             SAFE_RELEASE(vr->rawDepthTex);
             vr->rawDepthTex = depth;
-            vr->rawDepthTex->AddRef();
+            if (vr->rawDepthTex) vr->rawDepthTex->AddRef();
         }
         if (vr->rawMotionVectorsTex != motionVectors) {
             SAFE_RELEASE(vr->rawMotionVectorsTex);
             vr->rawMotionVectorsTex = motionVectors;
-            vr->rawMotionVectorsTex->AddRef();
+            if (vr->rawMotionVectorsTex) vr->rawMotionVectorsTex->AddRef();
         }
         if (output && motionVectors) {
             auto mvDesc = motionVectors->GetDesc();
@@ -102,9 +103,30 @@ NVSDK_NGX_Result hk_NVSDK_NGX_D3D12_EvaluateFeature(
         auto render_frame_count = vr->get_render_frame_count();
         EyeIndex nEye = (render_frame_count % 2 == 0) ? EyeLeft : EyeRight;
         EyeIndex nEyeOther = (render_frame_count % 2 == 0) ? EyeRight : EyeLeft;
+        if (render_frame_count - vr->last_dlss_frame_count > 2)
+            vr->dlss_continue_frame_count = 0;
         vr->last_dlss_frame_count = render_frame_count;
+        vr->dlss_continue_frame_count++;
         static int lastPausedFrame = render_frame_count;
-        bool bufferValid = vr->is_hmd_active() && motionVectors && vr->motionVectorsDesc[nEye].pTexture && vr->depthDesc[nEye].pTexture;
+        bool bufferValid = vr->is_hmd_active() && depth && motionVectors && vr->d3d12Renderer && vr->motionVectorsDesc[nEye].pTexture && vr->depthDesc[nEye].pTexture;
+        if (bufferValid) {
+            const auto depth_src = depth->GetDesc();
+            const auto depth_dst = vr->depthDesc[nEye].pTexture->GetDesc();
+            const auto mv_src = motionVectors->GetDesc();
+            const auto mv_dst = vr->motionVectorsDesc[nEye].pTexture->GetDesc();
+            bufferValid = depth != vr->depthDesc[nEye].pTexture &&
+                motionVectors != vr->motionVectorsDesc[nEye].pTexture &&
+                vrmod::afw_copy_layout_matches(depth_src, depth_dst) &&
+                vrmod::afw_copy_layout_matches(mv_src, mv_dst);
+            if (!bufferValid) {
+                SPDLOG_WARNING_EVERY_N_SEC(1,
+                    "[AFW copy layout] Reject inputs eye={} depth={}x{} fmt={} -> {}x{} fmt={} mv={}x{} fmt={} -> {}x{} fmt={}",
+                    (int)nEye, depth_src.Width, depth_src.Height, (int)depth_src.Format,
+                    depth_dst.Width, depth_dst.Height, (int)depth_dst.Format,
+                    mv_src.Width, mv_src.Height, (int)mv_src.Format,
+                    mv_dst.Width, mv_dst.Height, (int)mv_dst.Format);
+            }
+        }
         if (!bufferValid)
             lastPausedFrame = render_frame_count;
         if (lastPausedFrame > render_frame_count)
@@ -114,17 +136,17 @@ NVSDK_NGX_Result hk_NVSDK_NGX_D3D12_EvaluateFeature(
             src.pTexture = depth;
             src.initialState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
             vr->d3d12Renderer->Copy(InCmdList, vr->depthDesc[nEye], src);
-            if (motionVectors && vr->rawMVDesc[nEye].pTexture != motionVectors) {
-                vr->rawMVDesc[nEye].pTexture = motionVectors;
-                vr->rawMVDesc[nEye].initialState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
-                vr->d3d12Renderer->SetupTextureDesc(vr->rawMVDesc[nEye]);
-            }
+            SPDLOG_INFO_EVERY_N_SEC(1, "[AFW copy layout] Accepted eye={} depth_format={} mv_format={}",
+                (int)nEye, (int)depth->GetDesc().Format, (int)motionVectors->GetDesc().Format);
+            // Seed a private copy first: AFW correction may only modify a
+            // near-field region. DLSS/Cheeky must retain the original vectors.
+            src.pTexture = motionVectors;
+            src.initialState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+            vr->d3d12Renderer->Copy(InCmdList, vr->motionVectorsDesc[nEye], src);
             if (vr->is_ghosting_fix_enabled() && vr->is_fix_object_motion_vector() && 
                 vr->rawVelocityDesc[nEye].pTexture && vr->rawVelocityDesc[nEyeOther].pTexture) {
-                if (vr->rawMVDesc[nEye].pTexture && vr->motionVectorsDesc[nEye].pTexture) {
+                if (vr->motionVectorsDesc[nEye].pTexture) {
                     vr->update_camera_data(render_frame_count);
-                    auto inMVDesc = vr->rawVelocityDesc[nEye].pTexture->GetDesc();
-                    auto outMVDesc = vr->rawMVDesc[nEye].pTexture->GetDesc();
                     CorrectMotionVectorsParams mvParams;
                     mvParams.InMotionVectors = &vr->rawVelocityDesc[nEye];
                     mvParams.InDepth = &vr->depthDesc[nEye];
@@ -136,13 +158,14 @@ NVSDK_NGX_Result hk_NVSDK_NGX_D3D12_EvaluateFeature(
                     mvParams.FixUEObjMotionRange = vr->get_fix_object_motion_range();
                     mvParams.InUEVelocityPrev = &vr->rawVelocityDesc[nEyeOther];
                     mvParams.InDepthPrev = &vr->depthDesc[nEyeOther];
-                    vr->d3d12Renderer->CorrectMotionVectors(InCmdList, vr->rawMVDesc[nEye], mvParams);
-                    vr->d3d12Renderer->Copy(InCmdList, vr->motionVectorsDesc[nEye], vr->rawMVDesc[nEye]);
+                    vr->d3d12Renderer->CorrectMotionVectors(InCmdList, vr->motionVectorsDesc[nEye], mvParams);
+                    SPDLOG_INFO_EVERY_N_SEC(1, "[AFW MV isolation] Corrected private vectors eye={} frame={}; DLSS input preserved",
+                        (int)nEye, render_frame_count);
                 }
             } else {
-                src.pTexture = motionVectors;
-                src.initialState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
-                vr->d3d12Renderer->Copy(InCmdList, vr->motionVectorsDesc[nEye], src);
+                SPDLOG_INFO_EVERY_N_SEC(1, "[AFW MV isolation] Original vectors eye={} frame={} ghosting={} correction={} velocity_pair={}",
+                    (int)nEye, render_frame_count, vr->is_ghosting_fix_enabled(), vr->is_fix_object_motion_vector(),
+                    vr->rawVelocityDesc[nEye].pTexture != nullptr && vr->rawVelocityDesc[nEyeOther].pTexture != nullptr);
             }
         }
         if (vr->is_renderdoc) {
@@ -169,39 +192,42 @@ NVSDK_NGX_Result hk_NVSDK_NGX_D3D12_EvaluateFeature(
     return result;
 }
 
-decltype(&ID3D12GraphicsCommandList::ResourceBarrier) ptrResourceBarrier; // 26
+static SafetyHookInline ResourceBarrier_Hook{};
 void WINAPI hk_ID3D12GraphicsCommandList_ResourceBarrier(ID3D12GraphicsCommandList* This, UINT NumBarriers, const D3D12_RESOURCE_BARRIER* pBarriers) {
-    (This->*ptrResourceBarrier)(NumBarriers, pBarriers);
+    ResourceBarrier_Hook.call(This, NumBarriers, pBarriers);
     const auto& vr = VR::get();
 
     // Only track barriers submitted in RHISubmissionThread
     // Unless there's no RHISubmissionThread
     auto threadID = std::this_thread::get_id();
     bool isRHIThread = RHIThreadID == threadID;
-    static bool skip = false;
-    if (!vr->is_using_afw() || skip)
+    static thread_local bool skip = false;
+    if (!vr->is_using_afw() || skip || !vr->d3d12Renderer)
         return;
     static int lastRHIThreadFoundFrame = 0;
     static int lastRHISubmissionThreadFoundFrame = 0;
 
     ID3D12Resource* velocityCandidate = nullptr;
+    D3D12_RESOURCE_STATES velocityState = D3D12_RESOURCE_STATE_COMMON;
     ID3D12Resource* motionVectorsCandidate = nullptr;
     auto render_frame_count = vr->get_render_frame_count();
     EyeIndex nEye = (render_frame_count % 2 == 0) ? EyeLeft : EyeRight;
     bool isNeverDLSS = vr->is_never_dlss();
     for (int i = 0; i < NumBarriers; i++) {
         auto& barrier = pBarriers[i];
-        if (barrier.Type != D3D12_RESOURCE_BARRIER_TYPE_TRANSITION || !barrier.Transition.pResource || 
+        if (barrier.Type != D3D12_RESOURCE_BARRIER_TYPE_TRANSITION || barrier.Flags != D3D12_RESOURCE_BARRIER_FLAG_NONE || !barrier.Transition.pResource ||
             vr->rawVelocityDesc[nEye].pTexture == barrier.Transition.pResource ||
             vr->rawMVDesc[nEye].pTexture == barrier.Transition.pResource)
             continue;
         auto desc = barrier.Transition.pResource->GetDesc();
         if (desc.Format == DXGI_FORMAT_R16G16B16A16_UNORM) {
             if ((barrier.Transition.StateAfter & D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE) == D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE &&
-                barrier.Transition.StateBefore == D3D12_RESOURCE_STATE_RENDER_TARGET) {
+                (barrier.Transition.StateBefore == D3D12_RESOURCE_STATE_RENDER_TARGET ||
+                 barrier.Transition.StateBefore == D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE)) {
                 if ((desc.Width == vr->renderSize[0] || vr->renderSize[0] == 0) &&
                     (desc.Height == vr->renderSize[1] || vr->renderSize[1] == 0)) {
                     velocityCandidate = barrier.Transition.pResource;
+                    velocityState = barrier.Transition.StateAfter;
                 }
             }
         } else if (isNeverDLSS && desc.Format == DXGI_FORMAT_R16G16_FLOAT) {
@@ -238,10 +264,14 @@ void WINAPI hk_ID3D12GraphicsCommandList_ResourceBarrier(ID3D12GraphicsCommandLi
                 static std::map<ID3D12Resource*, TextureDesc> rawVelocityDescMap;
                 if (!rawVelocityDescMap.contains(velocityCandidate)) {
                     rawVelocityDescMap[velocityCandidate].pTexture = velocityCandidate;
-                    rawVelocityDescMap[velocityCandidate].initialState = D3D12_RESOURCE_STATE_RENDER_TARGET;
+                    rawVelocityDescMap[velocityCandidate].initialState = velocityState;
                     vr->d3d12Renderer->SetupTextureDesc(rawVelocityDescMap[velocityCandidate]);
                     // velocityCandidate->SetName(L"VelocityBuffer");
                 }
+                // The engine's barrier has already been forwarded above. Copy
+                // must transition from and restore StateAfter, not RENDER_TARGET.
+                // Refresh every observation: the same resource may change state.
+                rawVelocityDescMap[velocityCandidate].initialState = velocityState;
                 skip = true;
                 vr->d3d12Renderer->Copy(This, vr->rawVelocityDesc[nEye], rawVelocityDescMap[velocityCandidate]);
                 skip = false;
@@ -274,11 +304,11 @@ void WINAPI hk_ID3D12Device_CreateDepthStencilView(
     DSVMap[DestDescriptor.ptr] = pResource;
 }
 
-decltype(&ID3D12GraphicsCommandList::ClearDepthStencilView) ptrClearDepthStencilView; // 47
+static SafetyHookInline ClearDepthStencilView_Hook{};
 void WINAPI hk_ID3D12GraphicsCommandList_ClearDepthStencilView(ID3D12GraphicsCommandList* This, 
     D3D12_CPU_DESCRIPTOR_HANDLE DepthStencilView, D3D12_CLEAR_FLAGS ClearFlags, FLOAT Depth, UINT8 Stencil, UINT NumRects, const D3D12_RECT* pRects) {
 
-    (This->*ptrClearDepthStencilView)(DepthStencilView, ClearFlags, Depth, Stencil, NumRects, pRects);
+    ClearDepthStencilView_Hook.call(This, DepthStencilView, ClearFlags, Depth, Stencil, NumRects, pRects);
 
     const auto& vr = VR::get();
 
@@ -442,13 +472,41 @@ std::optional<std::string> VR::clean_initialize() try {
     *(uintptr_t*)&ptrCreateDepthStencilView = hookVtable(params.d3d12Device, 21, hk_ID3D12Device_CreateDepthStencilView);
 
     auto cmdList = d3d12Renderer->BeginCommandList(0);
-    *(uintptr_t*)&ptrResourceBarrier = hookVtable(cmdList, 26, hk_ID3D12GraphicsCommandList_ResourceBarrier);
-    *(uintptr_t*)&ptrClearDepthStencilView = hookVtable(cmdList, 47, hk_ID3D12GraphicsCommandList_ClearDepthStencilView);
+    // PureDark 29d34c33: intercept implementations, not a single command-list
+    // vtable. Wrappers can expose different vtables for game and plugin lists.
+    auto* command_vtable = *reinterpret_cast<uintptr_t**>(cmdList);
+    auto barrier_result = safetyhook::InlineHook::create(
+        reinterpret_cast<void*>(command_vtable[26]), reinterpret_cast<void*>(hk_ID3D12GraphicsCommandList_ResourceBarrier));
+    if (!barrier_result) {
+        d3d12Renderer->EndCommandList(0);
+        spdlog::error("[AFW upstream] ResourceBarrier hook failed: {}", (int)barrier_result.error().type);
+        return Mod::on_initialize();
+    }
+    ResourceBarrier_Hook = std::move(barrier_result.value());
+    auto clear_result = safetyhook::InlineHook::create(
+        reinterpret_cast<void*>(command_vtable[47]), reinterpret_cast<void*>(hk_ID3D12GraphicsCommandList_ClearDepthStencilView));
+    if (!clear_result) {
+        d3d12Renderer->EndCommandList(0);
+        spdlog::error("[AFW upstream] ClearDepthStencilView hook failed: {}", (int)clear_result.error().type);
+        return Mod::on_initialize();
+    }
+    ClearDepthStencilView_Hook = std::move(clear_result.value());
+    spdlog::info("[AFW upstream] 29d34c33 implementation hooks installed (ResourceBarrier, ClearDepthStencilView)");
     d3d12Renderer->EndCommandList(0);
 
-    auto dllNGX = GetModuleHandle("_nvngx.dll");
+    auto dllNGX = LoadLibrary("_nvngx.dll");
     if (!dllNGX)
-        dllNGX = GetModuleHandle("nvngx.dll");
+        dllNGX = LoadLibrary("nvngx.dll");
+    // PureDark e5587035: route through an NGX-exporting OptiScaler proxy.
+    for (const auto* proxy_name : {"dxgi.dll", "winmm.dll"}) {
+        auto proxy = LoadLibrary(proxy_name);
+        if (proxy && GetProcAddress(proxy, "NVSDK_NGX_D3D12_CreateFeature")) {
+            dllNGX = proxy;
+            spdlog::info("[AFW upstream] OptiScaler detected in {}; hooking its NGX exports", proxy_name);
+            break;
+        }
+        if (proxy) FreeLibrary(proxy);
+    }
     if (!dllNGX) {
         spdlog::error("nvngx.dll not loaded!");
     } else {
@@ -1470,6 +1528,21 @@ void VR::on_xinput_set_state(uint32_t* retval, uint32_t user_index, XINPUT_VIBRA
         return;
     }
 
+    // PSVR2Toolkit must be the sole owner of Sense adaptive-trigger and grip
+    // actuators. Mixing these XInput-derived OpenXR pulses with Toolkit CAPI
+    // removed gun feedback and misrouted recoil in prior PSVR2 validation.
+    // Keep the suppression explicit, default-off and scoped to TOW2 on the
+    // detected SteamVR PSVR2 OpenXR path so no maintained game changes by default.
+    if (m_external_psvr2_haptics->value() && is_the_outer_worlds2_executable_vr() &&
+        get_runtime()->is_openxr() && m_openxr->is_steamvr_psvr2_system) {
+        static bool logged_suppression = false;
+        if (!logged_suppression) {
+            logged_suppression = true;
+            spdlog::info("[TOW2 PSVR2] External haptics owns Sense output; suppressing UEVR XInput-to-OpenXR vibration");
+        }
+        return;
+    }
+
     const auto left_amplitude = ((float)vibration->wLeftMotorSpeed / 65535.0f) * 5.0f;
     const auto right_amplitude = ((float)vibration->wRightMotorSpeed / 65535.0f) * 5.0f;
 
@@ -1952,10 +2025,10 @@ void VR::update_hmd_state(bool from_view_extensions, uint32_t frame_count) {
     std::scoped_lock _{m_reinitialize_mtx};
 
     auto runtime = get_runtime();
-    const auto skip_unsafe_cvars = is_the_outer_worlds2_executable_vr();
+    const auto skip_unsafe_cvars = CVarManager::uses_validated_access();
 
     if (skip_unsafe_cvars) {
-        SPDLOG_WARN_ONCE("[TOW2] Skipping VR::update_hmd_state CVar writes/queries to avoid post-update CVar scanner stall");
+        SPDLOG_WARN_ONCE("[Validated CVar] Skipping legacy VR::update_hmd_state CVar writes/queries; use the game-thread validated menu");
     } else {
         if (m_uncap_framerate->value()) {
             sdk::set_cvar_data_float(L"Engine", L"t.MaxFPS", 500.0f);
@@ -2245,6 +2318,10 @@ void VR::on_config_save(utility::Config& cfg) {
     }
 
     m_overlay_component.on_config_save(cfg);
+
+    if (m_cvar_manager != nullptr) {
+        m_cvar_manager->on_config_save(cfg);
+    }
 
     // Save camera offsets
     save_cameras();
@@ -3873,6 +3950,11 @@ void VR::trigger_haptic_vibration(float seconds_from_now, float duration, float 
     ZoneScopedN(__FUNCTION__);
 
     if (!get_runtime()->loaded || !is_using_controllers()) {
+        return;
+    }
+
+    if (m_external_psvr2_haptics->value() && is_the_outer_worlds2_executable_vr() &&
+        get_runtime()->is_openxr() && m_openxr->is_steamvr_psvr2_system) {
         return;
     }
 

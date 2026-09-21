@@ -37,7 +37,7 @@ overlay rather than in config, so calling that page is the only way to reach the
 # The result: both eyes, which a two-resource port cannot achieve
 
 Confirmed in TOW2. This is the outcome the same addon cannot produce in the CyberpunkVR port,
-where it reaches one eye permanently — see [/projects/cyberpunk-vr-port.md](../projects/cyberpunk-vr-port.md).
+where it reaches one eye permanently — see the [CyberpunkVR Port repository](https://github.com/satyaloka93/cyberpunk-vr-port).
 
 ## Why it works here, and it is not the reason first assumed
 

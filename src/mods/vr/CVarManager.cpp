@@ -5,6 +5,10 @@
 #include <optional>
 #include <algorithm>
 #include <cwctype>
+#include <cmath>
+#include <unordered_set>
+#include <sstream>
+#include <format>
 #include <nlohmann/json.hpp>
 
 #include <utility/Config.hpp>
@@ -14,11 +18,13 @@
 #include <sdk/CVar.hpp>
 #include <sdk/threading/GameThreadWorker.hpp>
 #include <sdk/ConsoleManager.hpp>
+#include <sdk/ConsoleRegistryValidation.hpp>
 #include <sdk/UGameplayStatics.hpp>
 
 #include "Framework.hpp"
 
 #include "CVarManager.hpp"
+#include "CVarScriptPolicy.hpp"
 
 #include <tracy/Tracy.hpp>
 
@@ -27,7 +33,7 @@ constexpr std::string_view cvars_data_txt_name = "cvars_data.txt";
 constexpr std::string_view user_script_txt_name = "user_script.txt";
 
 namespace {
-bool is_the_outer_worlds2_executable() {
+bool is_validated_cvar_game() {
     static const bool result = []() {
         const auto exe_path = utility::get_module_pathw(utility::get_executable());
         if (!exe_path.has_value()) {
@@ -38,18 +44,45 @@ bool is_the_outer_worlds2_executable() {
         std::transform(filename.begin(), filename.end(), filename.begin(), [](wchar_t ch) {
             return static_cast<wchar_t>(std::towlower(static_cast<wint_t>(ch)));
         });
-        return filename == L"theouterworlds2-win64-shipping.exe";
+        return filename == L"theouterworlds2-win64-shipping.exe" || filename == L"shf-win64-shipping.exe";
     }();
 
     return result;
 }
+
+const sdk::console_validation::Snapshot& validated_registry() {
+    static const auto objects = sdk::console_validation::snapshot(sdk::FConsoleManager::get_validated());
+    return objects;
 }
+
+sdk::IConsoleVariable* validated_variable(const std::wstring& name) {
+    const auto& objects = validated_registry();
+    const auto it = objects.find(name);
+    if (it == objects.end()) return nullptr;
+    auto* variable = reinterpret_cast<sdk::IConsoleVariable*>(it->second);
+    if (!sdk::console_validation::object(variable)) return nullptr;
+    static std::unordered_set<uintptr_t> rejected_vtables;
+    uintptr_t table{};
+    if (!sdk::console_validation::read(variable, &table, sizeof(table)) || rejected_vtables.contains(table)) return nullptr;
+    if (!variable->validate_access()) { rejected_vtables.insert(table); return nullptr; }
+    return variable;
+}
+}
+
+bool CVarManager::uses_validated_access() { return is_validated_cvar_game(); }
 
 CVarManager::CVarManager() {
     ZoneScopedN(__FUNCTION__);
 
     m_displayed_cvars.insert(m_displayed_cvars.end(), s_default_standard_cvars.begin(), s_default_standard_cvars.end());
     m_displayed_cvars.insert(m_displayed_cvars.end(), s_default_data_cvars.begin(), s_default_data_cvars.end());
+
+    if (is_validated_cvar_game()) {
+        for (auto& cvar : m_displayed_cvars) {
+            const bool data = dynamic_cast<CVarData*>(cvar.get()) != nullptr;
+            cvar = std::make_shared<CVarValidated>(*cvar, data);
+        }
+    }
 
     // Sort first by name, then by bool/int/float type. Bools get displayed first.
     std::sort(m_displayed_cvars.begin(), m_displayed_cvars.end(), [](const auto& a, const auto& b) {
@@ -61,6 +94,20 @@ CVarManager::CVarManager() {
     });
 
     m_all_cvars.insert(m_all_cvars.end(), m_displayed_cvars.begin(), m_displayed_cvars.end());
+
+    for (const auto& entry : performance_cvars::entries) {
+        std::shared_ptr<CVarStandard> source;
+        if (entry.kind == performance_cvars::Kind::floating) {
+            source = std::make_shared<CVarStandard>(L"Renderer", entry.name, CVar::Type::FLOAT, entry.minimum, entry.maximum);
+        } else {
+            source = std::make_shared<CVarStandard>(L"Renderer", entry.name,
+                entry.kind == performance_cvars::Kind::toggle ? CVar::Type::BOOL : CVar::Type::INT,
+                (int)entry.minimum, (int)entry.maximum);
+        }
+        auto cvar = std::make_shared<CVarValidated>(*source, &entry);
+        m_performance_cvars.push_back(cvar);
+        m_all_cvars.push_back(cvar);
+    }
 
     // set m_hzbo (shared ptr) to the r.HZBOcclusion cvar in m_all_cvars
     for (auto& cvar : m_all_cvars) {
@@ -105,30 +152,49 @@ void CVarManager::spawn_console() {
 void CVarManager::on_pre_engine_tick(sdk::UGameEngine* engine, float delta) {
     ZoneScopedN(__FUNCTION__);
 
-    if (is_the_outer_worlds2_executable()) {
-        static bool s_logged_tow2_skip = false;
-        if (!s_logged_tow2_skip) {
-            spdlog::warn("[TOW2] Skipping CVarManager scanner/freeze path; user_script.txt will still execute through UE console exec");
-            s_logged_tow2_skip = true;
-        }
-
-        if (m_should_execute_console_script) {
-            execute_console_script(engine, user_script_txt_name.data());
-            m_should_execute_console_script = false;
-        }
-
-        return;
+    const auto now = std::chrono::steady_clock::now();
+    if (m_validated_start == std::chrono::steady_clock::time_point{}) {
+        m_validated_start = now;
+        spdlog::info("[Validated CVar] Optional performance discovery deferred for five seconds");
     }
 
-    for (auto& cvar : m_all_cvars) {
-        cvar->update();
-        cvar->freeze();
+    if (is_validated_cvar_game()) {
+        if (now - m_validated_start < std::chrono::seconds(5)) return;
+        if (m_validated_next < m_displayed_cvars.size()) {
+            auto& cvar = m_displayed_cvars[m_validated_next++];
+            cvar->update();
+            cvar->freeze();
+        } else if (now - m_validated_poll >= std::chrono::milliseconds(250)) {
+            m_validated_poll = now;
+            for (auto& cvar : m_displayed_cvars) { cvar->update(); cvar->freeze(); }
+        }
+    } else {
+        for (auto& cvar : m_all_cvars) {
+            if (cvar->is_performance_entry()) continue;
+            cvar->update();
+            cvar->freeze();
+        }
+    }
+
+    // Optional controls use bounded registry lookup in every game. Never invoke
+    // legacy fallback scans for a missing performance variable.
+    if (now - m_validated_start >= std::chrono::seconds(5)) {
+        if (m_performance_next < m_performance_cvars.size()) {
+            auto& cvar = m_performance_cvars[m_performance_next++];
+            cvar->update(); cvar->freeze();
+        } else if (now - m_performance_poll >= std::chrono::milliseconds(250)) {
+            m_performance_poll = now;
+            for (auto& cvar : m_performance_cvars) { cvar->update(); cvar->freeze(); }
+        }
     }
 
     if (m_should_execute_console_script) {
         execute_console_script(engine, user_script_txt_name.data());
         m_should_execute_console_script = false;
     }
+    // One entry per tick limits batch stalls; a single engine setter can still
+    // recreate render resources. Its elapsed time is logged separately.
+    process_script_line(engine);
 }
 
 void CVarManager::on_draw_ui() {
@@ -137,6 +203,25 @@ void CVarManager::on_draw_ui() {
     ImGui::SetNextItemOpen(true, ImGuiCond_::ImGuiCond_Once);
     if (ImGui::TreeNode("CVars")) {
         ImGui::TextWrapped("Note: Any changes here will be frozen.");
+        m_auto_user_script->draw("Automatically apply user_script.txt on profile load");
+        ImGui::TextWrapped("Off bypasses automatic application. Save Config to keep this choice. Bypass does not undo values already applied; restart for a clean baseline. Independent Lua/INI overrides are not controlled here.");
+        if (ImGui::Button("Apply user_script.txt once")) {
+            GameThreadWorker::get().enqueue([this]() { m_should_execute_console_script = true; });
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Bypass / cancel pending script")) {
+            m_auto_user_script->value() = false;
+            GameThreadWorker::get().enqueue([this]() {
+                m_should_execute_console_script = false;
+                m_script_lines.clear();
+                m_script_remaining = 0;
+                spdlog::info("[CVar script] Pending script cancelled; already-applied values unchanged");
+            });
+        }
+        ImGui::Text("Pending script lines: %llu", (unsigned long long)m_script_remaining.load());
+        if (is_validated_cvar_game()) {
+            ImGui::TextWrapped("Validated numeric access (TOW2/SHf): discovery starts after 5 seconds. Unverified variables are unavailable. Frozen menu values take priority over conflicting script lines; unchanged values are not written again.");
+        }
 
         uint32_t frozen_cvars = 0;
 
@@ -190,6 +275,28 @@ void CVarManager::on_draw_ui() {
             }
         }
         
+        if (ImGui::TreeNode("Performance controls (detected in this game)")) {
+            ImGui::TextWrapped("Only registered variables are listed; verified interfaces are editable. Presence does not prove a feature is active. No preset is applied. Changes are saved/frozen after readback. Hover for details; sliders apply on release.");
+            size_t pending{}, missing{}, supported{};
+            const char* group = nullptr;
+            for (auto& cvar : m_performance_cvars) {
+                const auto status = cvar->status();
+                if (status == 0) { ++pending; continue; }
+                if (status == 4) { ++missing; continue; }
+                if (status == 1) ++supported;
+                const auto* entry = cvar->performance_entry();
+                if (!group || std::string_view(group) != entry->group) {
+                    group = entry->group;
+                    ImGui::Separator(); ImGui::TextUnformatted(group);
+                }
+                cvar->draw_ui();
+            }
+            ImGui::Text("Verified: %llu | Not present: %llu | Pending: %llu",
+                (unsigned long long)supported, (unsigned long long)missing, (unsigned long long)pending);
+            ImGui::TextWrapped("Resolution, VSM enable, AO, motion blur and depth of field remain in the existing list below. Leave the working VSM setting unchanged while testing other controls.");
+            ImGui::TreePop();
+        }
+
         for (auto& cvar : m_displayed_cvars) {
             cvar->draw_ui();
         }
@@ -206,22 +313,9 @@ void CVarManager::on_frame() {
 
 void CVarManager::on_config_load(const utility::Config& cfg, bool set_defaults) {
     ZoneScopedN(__FUNCTION__);
-
-    if (is_the_outer_worlds2_executable()) {
-        static bool s_logged_tow2_skip = false;
-        if (!s_logged_tow2_skip) {
-            spdlog::warn("[TOW2] Skipping CVarManager cvars_standard/cvars_data load to avoid post-update scanner stall; user_script.txt remains enabled");
-            s_logged_tow2_skip = true;
-        }
-
-        // Do not load/freeze the CVar menu values on TOW2 because update()/freeze() uses the fragile
-        // CVar scanner path. Keep user_script enabled so profile-specific console commands can still
-        // be applied without sdk::find_cvar_* scanning.
-        if (!set_defaults) {
-            m_should_execute_console_script = true;
-        }
-        return;
-    }
+    m_auto_user_script->config_load(cfg, set_defaults);
+    m_script_lines.clear();
+    m_script_remaining = 0;
 
     for (auto& cvar : m_all_cvars) {
         cvar->load(set_defaults);
@@ -230,12 +324,25 @@ void CVarManager::on_config_load(const utility::Config& cfg, bool set_defaults) 
     // TODO: Add arbitrary cvars from the other configs the user can add.
 
     // calling UEngine::exec here causes a crash, defer to on_pre_engine_tick()
-    if (!set_defaults) {
-        m_should_execute_console_script = true;
-    }
+    m_should_execute_console_script = !set_defaults && m_auto_user_script->value();
+    spdlog::info("[CVar script] Profile loaded: automatic={} validated={}", m_should_execute_console_script, is_validated_cvar_game());
+}
+
+void CVarManager::on_config_save(utility::Config& cfg) {
+    m_auto_user_script->config_save(cfg);
 }
 
 void CVarManager::dump_commands() {
+    if (is_validated_cvar_game()) {
+        nlohmann::json json;
+        for (const auto& [name, address] : validated_registry()) {
+            json[utility::narrow(name)] = {{"registry_present", true}, {"access", "not invoked during dump"}};
+        }
+        std::ofstream file(g_framework->get_persistent_dir() / "cvardump.json");
+        if (file) file << json.dump(4);
+        spdlog::info("[Validated CVar] Dumped {} registry names (not a value/type dump)", validated_registry().size());
+        return;
+    }
     const auto console_manager = sdk::FConsoleManager::get();
 
     if (console_manager == nullptr) {
@@ -298,6 +405,13 @@ void CVarManager::dump_commands() {
 // Use ImGui to display a homebrew console.
 void CVarManager::display_console() {
     if (!g_framework->is_drawing_ui()) {
+        return;
+    }
+    if (is_validated_cvar_game()) {
+        if (ImGui::Begin("UEVRConsole", &m_wants_display_console)) {
+            ImGui::TextWrapped("Legacy arbitrary-command dispatch is disabled for this game. Use the validated CVar menu, registry dump, or numeric script button.");
+        }
+        ImGui::End();
         return;
     }
 
@@ -834,6 +948,119 @@ void CVarManager::CVarData::draw_ui() try {
     ImGui::TextWrapped("Failed to read cvar data: %s", utility::narrow(m_name).c_str());
 }
 
+void CVarManager::CVarValidated::load(bool defaults) {
+    if (defaults) { m_frozen = false; return; }
+    load_internal(config_name(), defaults);
+    // TOW2 stereo bisection identified VSM. SHf uses this as a candidate,
+    // not a proven diagnosis. Honor explicit saved choices in both games.
+    if (m_name == L"r.Shadow.Virtual.Enable" && !m_frozen) {
+        m_frozen_int_value = 0;
+        m_frozen = true;
+    }
+}
+
+void CVarManager::CVarValidated::update() try {
+    if (!m_attempted) {
+        m_attempted = true;
+        const auto started = std::chrono::steady_clock::now();
+        if (is_performance_entry() && !validated_registry().contains(m_name)) {
+            // A failed registry discovery is not proof that this variable is absent.
+            m_status = validated_registry().empty() ? 2 : 4;
+            return;
+        }
+        m_variable = validated_variable(m_name);
+        m_status = m_variable ? 1 : 2;
+        spdlog::info("[Validated CVar] {} access={} discovery_ms={:.3f}", utility::narrow(m_name),
+            m_variable ? "verified" : "unavailable", std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count());
+    }
+    if (m_status != 1) return;
+    if (!sdk::console_validation::object(m_variable)) { m_status = 3; return; }
+    if (m_type == Type::FLOAT) m_float = m_variable->GetFloat();
+    else m_int = m_variable->GetInt();
+} catch (...) {
+    m_status = 3;
+    spdlog::error("[Validated CVar] {} read failed; disabled for this session", utility::narrow(m_name));
+}
+
+void CVarManager::CVarValidated::save() {
+    if (m_status != 1) return;
+    if (m_type == Type::FLOAT) m_frozen_float_value = m_float.load();
+    else m_frozen_int_value = m_int.load();
+    save_internal(config_name());
+}
+
+void CVarManager::CVarValidated::freeze() try {
+    if (!m_frozen || m_status != 1) return;
+    const double desired = m_type == Type::FLOAT ? m_frozen_float_value : m_frozen_int_value;
+    if (!std::isfinite(desired)) { m_status = 3; return; }
+    const double before = m_type == Type::FLOAT ? m_float.load() : m_int.load();
+    if (before != desired) {
+        // UE5.5+ SetByConsole. Old UEVR's 0x08000000 is not console priority
+        // on this engine. Never touch flags or render-thread shadow data.
+        const auto text = m_type == Type::FLOAT ? std::format(L"{:.9g}", m_frozen_float_value) : std::to_wstring(m_frozen_int_value);
+        m_variable->Set(text.c_str(), is_validated_cvar_game() ? 0x0E000000 : 0x08000000);
+        update();
+    }
+    const double actual = m_type == Type::FLOAT ? m_float.load() : m_int.load();
+    if (!m_ever_frozen || before != desired) {
+        // One-time/change-only warning-level evidence survives SHf's usual
+        // warning-only logger without enabling noisy per-frame info output.
+        spdlog::warn("[Validated CVar] {} requested={} before={} readback={} verified={}",
+            utility::narrow(m_name), desired, before, actual, m_status == 1 && actual == desired);
+        m_ever_frozen = true;
+    }
+    if (m_status != 1 || actual != desired) {
+        m_status = 3; // Fail closed, rather than hammering a rejected setter.
+        spdlog::error("[Validated CVar] {} setter/readback mismatch; disabled", utility::narrow(m_name));
+    }
+} catch (...) {
+    m_status = 3;
+    spdlog::error("[Validated CVar] {} write failed; disabled", utility::narrow(m_name));
+}
+
+void CVarManager::CVarValidated::draw_ui() {
+    const auto name = utility::narrow(m_name);
+    const auto label = m_performance_entry ? std::string(m_performance_entry->label) + "##" + name : name;
+    const auto status = m_status.load();
+    if (status != 1) {
+        ImGui::TextWrapped("%s: %s", name.c_str(), status == 0 ? "discovery pending" : status == 2 ? "unavailable (validation failed)" : "access/readback failed");
+        return;
+    }
+    int iv = m_int.load();
+    float fv = m_float.load();
+    if (m_editing) { iv = m_edit_int; fv = m_edit_float; }
+    bool changed{};
+    if (m_type == Type::BOOL) { bool value = iv != 0; changed = ImGui::Checkbox(label.c_str(), &value); iv = value; }
+    else if (m_type == Type::INT) changed = ImGui::SliderInt(label.c_str(), &iv, m_min_int_value, m_max_int_value);
+    else changed = ImGui::SliderFloat(label.c_str(), &fv, m_min_float_value, m_max_float_value);
+    if (is_performance_entry() && m_type != Type::BOOL) {
+        if (changed) { m_editing = true; m_edit_int = iv; m_edit_float = fv; }
+        changed = m_editing && ImGui::IsItemDeactivatedAfterEdit();
+        if (changed) m_editing = false;
+    }
+    if (m_performance_entry && ImGui::IsItemHovered()) {
+        ImGui::BeginTooltip();
+        ImGui::TextUnformatted(name.c_str());
+        ImGui::PushTextWrapPos(ImGui::GetFontSize() * 32);
+        ImGui::TextUnformatted(m_performance_entry->help);
+        ImGui::PopTextWrapPos(); ImGui::EndTooltip();
+    }
+    if (changed) {
+        if (is_performance_entry()) {
+            if (m_type == Type::FLOAT) fv = std::clamp(fv, m_min_float_value, m_max_float_value);
+            else iv = std::clamp(iv, m_min_int_value, m_max_int_value);
+        }
+        GameThreadWorker::get().enqueue([self = std::static_pointer_cast<CVarValidated>(shared_from_this()), iv, fv]() {
+            if (self->m_status != 1) return;
+            if (self->m_type == Type::FLOAT) self->m_frozen_float_value = fv;
+            else self->m_frozen_int_value = iv;
+            self->m_frozen = true;
+            self->freeze();
+            if (self->m_status == 1) self->save();
+        });
+    }
+}
+
 static inline void trim(std::string &s) {
     s.erase(s.begin(), std::find_if(s.begin(), s.end(), [](unsigned char ch) {
         return !std::isspace(ch);
@@ -847,7 +1074,7 @@ static inline void trim(std::string &s) {
 void CVarManager::execute_console_script(sdk::UGameEngine* engine, const std::string& filename) {
     ZoneScopedN(__FUNCTION__);
 
-    if (engine == nullptr) {
+    if (engine == nullptr && !is_validated_cvar_game()) {
         spdlog::error("[execute_console_script] engine is null");
         return;
     }
@@ -866,6 +1093,8 @@ void CVarManager::execute_console_script(sdk::UGameEngine* engine, const std::st
         spdlog::error("[execute_console_script] Failed to open file {}...", filename);
         return;
     }
+
+    m_script_lines.clear();
 
     for (std::string line{}; getline(cscript_file, line); ) {
         trim(line);
@@ -889,9 +1118,50 @@ void CVarManager::execute_console_script(sdk::UGameEngine* engine, const std::st
             continue;
         }
 
-        spdlog::debug("[execute_console_script] Attempting to execute \"{}\"", line);
-        engine->exec(utility::widen(line));
+        if (!line.starts_with("//")) m_script_lines.push_back(std::move(line));
     }
+    m_script_remaining = m_script_lines.size();
+    spdlog::info("[CVar script] Queued {} lines; one entry per engine tick", m_script_lines.size());
+}
 
-    spdlog::debug("[execute_console_script] done");
+void CVarManager::process_script_line(sdk::UGameEngine* engine) {
+    if (m_script_lines.empty()) return;
+    const auto line = std::move(m_script_lines.front());
+    m_script_lines.pop_front();
+    m_script_remaining = m_script_lines.size();
+    const auto started = std::chrono::steady_clock::now();
+    if (is_validated_cvar_game()) {
+            // Explicit-only script path: numeric variables, never arbitrary
+            // engine commands or the unresolved UEngine::Exec interface.
+            std::istringstream input(line);
+            std::string name, value, extra;
+            input >> name >> value;
+            if (value.empty() || (input >> extra)) return;
+            try {
+                size_t consumed{};
+                const double number = std::stod(value, &consumed);
+                if (consumed != value.size() || !std::isfinite(number) || !std::isfinite((float)number)) return;
+                for (const auto& cvar : m_all_cvars) {
+                    if (cvar->get_name() != utility::widen(name) || !cvar->is_frozen()) continue;
+                    const double frozen = cvar->get_type() == CVar::Type::FLOAT ? cvar->get_frozen_float_value() : cvar->get_frozen_int_value();
+                    if (cvar_script::action((float)number, 0, true, (float)frozen) == cvar_script::Action::frozen_conflict) {
+                        spdlog::warn("[CVar script] {} requested={} conflicts with frozen menu={}; skipped (change/unfreeze menu first)", name, value, frozen);
+                        return;
+                    }
+                }
+                auto* variable = validated_variable(utility::widen(name));
+                if (!variable) { spdlog::warn("[CVar script] {} unavailable; skipped", name); return; }
+                const float before = variable->GetFloat();
+                const bool unchanged = cvar_script::action((float)number, before, false, 0) == cvar_script::Action::unchanged;
+                if (!unchanged) variable->Set(utility::widen(value).c_str(), 0x0E000000);
+                const float actual = variable->GetFloat();
+                spdlog::warn("[CVar script] {} requested={} before={} readback={} unchanged={} verified={} elapsed_ms={:.3f}",
+                    name, value, before, actual, unchanged, actual == (float)number,
+                    std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count());
+            } catch (...) { spdlog::warn("[CVar script] Rejected/failed: {}", line); }
+    } else if (engine != nullptr) {
+        engine->exec(utility::widen(line));
+        spdlog::info("[CVar script] Legacy exec '{}' elapsed_ms={:.3f} (no readback)", line,
+            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count());
+    }
 }

@@ -20,6 +20,7 @@
 
 #include "../../VR.hpp"
 #include "OpenXR.hpp"
+#include "OpenXRSubmissionPolicy.hpp"
 
 using namespace nlohmann;
 
@@ -171,7 +172,11 @@ VRRuntime::Error OpenXR::synchronize_frame(std::optional<uint32_t> frame_count) 
 
     XrFrameWaitInfo frame_wait_info{XR_TYPE_FRAME_WAIT_INFO};
     XrFrameState local_frame_state{XR_TYPE_FRAME_STATE};
+    const auto wait_start = std::chrono::steady_clock::now();
     auto result = xrWaitFrame(this->session, &frame_wait_info, &local_frame_state);
+    ++submission_stats.waits;
+    submission_stats.wait_ms += std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - wait_start).count();
 
     this->end_profile("xrWaitFrame");
 
@@ -721,6 +726,7 @@ void OpenXR::destroy() {
 
     std::scoped_lock _{sync_mtx};
 
+    log_submission_stats(true);
     if (this->session != nullptr) {
         if (this->session_ready) {
             xrEndSession(this->session);
@@ -1717,6 +1723,21 @@ void OpenXR::save_bindings() {
     this->wants_reinitialize = true;
 }
 
+void OpenXR::log_submission_stats(bool force) {
+    const auto now = std::chrono::steady_clock::now();
+    auto& s = submission_stats;
+    const auto seconds = std::chrono::duration<double>(now - s.since).count();
+    if ((!force && seconds < 5.0) || (s.attempts == 0 && s.begin_errors == 0 && s.discarded == 0)) {
+        return;
+    }
+    spdlog::info("[OpenXR delivery] seconds={:.2f} attempts={} accepted={} native={} repaired={} time_invalid={} begin_errors={} discarded={} accepted_per_s={:.2f} wait_cpu_ms={:.3f} end_cpu_ms={:.3f} last_begin={} last_end={}",
+        seconds, s.attempts, s.accepted, s.native_attempts, s.repaired, s.invalid_time,
+        s.begin_errors, s.discarded, seconds > 0 ? s.accepted / seconds : 0.0,
+        s.waits ? s.wait_ms / s.waits : 0.0, s.attempts ? s.end_ms / s.attempts : 0.0,
+        static_cast<int>(s.last_begin_result), static_cast<int>(s.last_end_result));
+    s = {};
+}
+
 XrResult OpenXR::begin_frame() {
     std::scoped_lock _{sync_mtx};
 
@@ -1737,8 +1758,12 @@ XrResult OpenXR::begin_frame() {
 
     this->end_profile("xrBeginFrame");
 
-    if (result != XR_SUCCESS) {
-        spdlog::error("[VR] xrBeginFrame failed: {}", this->get_result_string(result));
+    // XR_FRAME_DISCARDED is a successful begin, not an API failure. Count it
+    // without turning a recoverable condition into a synchronous log storm.
+    if (XR_FAILED(result)) {
+        if (++submission_stats.begin_errors == 1) {
+            spdlog::error("[VR] xrBeginFrame failed: {} (further failures counted in OpenXR delivery summary)", this->get_result_string(result));
+        }
     }
 
     if (result == XR_ERROR_CALL_ORDER_INVALID) {
@@ -1746,7 +1771,10 @@ XrResult OpenXR::begin_frame() {
         result = xrBeginFrame(this->session, &frame_begin_info);
     }
 
-    this->frame_began = result == XR_SUCCESS || result == XR_FRAME_DISCARDED; // discarded means endFrame was not called
+    submission_stats.last_begin_result = result;
+    if (result == XR_FRAME_DISCARDED) ++submission_stats.discarded;
+    this->frame_began = XR_SUCCEEDED(result);
+    log_submission_stats();
 
     return result;
 }
@@ -1794,6 +1822,15 @@ XrResult OpenXR::end_frame(const std::vector<XrCompositionLayerBaseHeader*>& qua
     const auto submit_state = this->get_submit_state();
     const auto& pipelined_stage_views = submit_state.stage_views;
     const auto& pipelined_frame_state = submit_state.frame_state;
+    // sync_mtx prevents another wait; copy mutable prediction under its own
+    // assignment lock because update_poses can advance it on the game thread.
+    XrFrameState waited_state{XR_TYPE_FRAME_STATE};
+    XrTime speculative_time{};
+    {
+        std::scoped_lock assignment_lock{this->sync_assignment_mtx};
+        waited_state = this->wait_frame_state;
+        speculative_time = this->frame_state.predictedDisplayTime;
+    }
 
     if (pipelined_stage_views.empty()) {
         spdlog::warn("[VR] No stage views to submit");
@@ -1935,17 +1972,14 @@ XrResult OpenXR::end_frame(const std::vector<XrCompositionLayerBaseHeader*>& qua
     }
 
     XrFrameEndInfo frame_end_info{XR_TYPE_FRAME_END_INFO};
-    auto submitted_display_time =
-        pipelined_frame_state.predictedDisplayTime != 0
-            ? pipelined_frame_state.predictedDisplayTime
-            : this->frame_state.predictedDisplayTime;
-
-    // Avowed advances speculative/pipelined frame state while a frame is open.
-    // xrEndFrame must use the immutable display time returned by xrWaitFrame;
-    // otherwise SteamVR rejects submissions with XR_ERROR_TIME_INVALID.
-    if (is_avowed_executable_openxr() && this->wait_frame_state.predictedDisplayTime > 0) {
-        submitted_display_time = this->wait_frame_state.predictedDisplayTime;
-    }
+    const auto candidate_time = pipelined_frame_state.predictedDisplayTime != 0
+        ? pipelined_frame_state.predictedDisplayTime : speculative_time;
+    const auto submitted_display_time = submission::display_time(
+        pipelined_frame_state.predictedDisplayTime, speculative_time,
+        waited_state.predictedDisplayTime, !is_afr, is_avowed_executable_openxr());
+    ++submission_stats.attempts;
+    if (!is_afr) ++submission_stats.native_attempts;
+    if (submitted_display_time != candidate_time) ++submission_stats.repaired;
 
     frame_end_info.displayTime = submitted_display_time;
     frame_end_info.environmentBlendMode = this->blend_mode;
@@ -1957,22 +1991,28 @@ XrResult OpenXR::end_frame(const std::vector<XrCompositionLayerBaseHeader*>& qua
     //spdlog::info("[VR] Ending frame, layer ptr: {:x}", (uintptr_t)frame_end_info.layers);
 
     this->begin_profile();
+    const auto end_start = std::chrono::steady_clock::now();
     auto result = xrEndFrame(this->session, &frame_end_info);
+    submission_stats.end_ms += std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - end_start).count();
+    submission_stats.last_end_result = result;
     this->end_profile("xrEndFrame");
     
-    if (result != XR_SUCCESS) {
-        spdlog::error("[VR] xrEndFrame failed: {}", this->get_result_string(result));
-
-        if (result == XR_ERROR_TIME_INVALID) {
-             spdlog::error("[VR] xrEndFrame time: submitted: {} vs frame_state: {}", frame_end_info.displayTime, this->frame_state.predictedDisplayTime);
-             spdlog::error("[VR] display time diff: {}", frame_end_info.displayTime - this->frame_state.predictedDisplayTime);
+    if (XR_FAILED(result)) {
+        if (result == XR_ERROR_TIME_INVALID) ++submission_stats.invalid_time;
+        if (submission_stats.attempts - submission_stats.accepted == 1) {
+            spdlog::error("[VR] xrEndFrame failed: {} candidate={} submitted={} waited={} speculative={} render_frame={} native={} (further failures counted in OpenXR delivery summary)",
+                this->get_result_string(result), candidate_time, submitted_display_time,
+                waited_state.predictedDisplayTime, speculative_time, submit_state.frame_count, !is_afr);
         }
     } else {
+        ++submission_stats.accepted;
         this->ever_submitted = true;
     }
     
     this->frame_began = false;
     this->frame_synced = false;
+    log_submission_stats();
 
     return result;
 }

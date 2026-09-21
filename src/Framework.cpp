@@ -22,6 +22,7 @@
 #include "utility/Thread.hpp"
 #include "utility/String.hpp"
 #include "utility/Input.hpp"
+#include "utility/FrameworkScroll.hpp"
 
 #include "WindowFilter.hpp"
 
@@ -1514,6 +1515,9 @@ void Framework::draw_ui() {
     sidebar_entries.clear();
     sidebar_entries.emplace_back("About", false);
 
+    // Explicitly bound panes to the visible area for long settings lists.
+    const float sidebar_pane_height = (std::max)(1.0f,
+        ImGui::GetContentRegionAvail().y - ImGui::GetStyle().CellPadding.y * 2.0f);
     if (ImGui::BeginTable("UEVRTable", 2, ImGuiTableFlags_::ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_::ImGuiTableFlags_BordersOuterV | ImGuiTableFlags_::ImGuiTableFlags_SizingFixedFit)) {
         ImGui::TableSetupColumn("UEVRLeftPaneColumn", ImGuiTableColumnFlags_WidthFixed, 150.0f);
         ImGui::TableSetupColumn("UEVRRightPaneColumn", ImGuiTableColumnFlags_WidthStretch);
@@ -1521,7 +1525,7 @@ void Framework::draw_ui() {
         ImGui::TableNextRow();
         ImGui::TableSetColumnIndex(0); // Set to the first column
 
-        ImGui::BeginChild("UEVRLeftPane", ImVec2(0, 0), true);
+        ImGui::BeginChild("UEVRLeftPane", ImVec2(0, sidebar_pane_height), true);
         auto dcs = [&](const char* label, int32_t page_value) -> bool {
             ImGui::PushStyleVar(ImGuiStyleVar_SelectableTextAlign, ImVec2(0.5f, 0.5f));
             if (ImGui::Selectable(label, m_sidebar_state.selected_entry == page_value)) {
@@ -1622,8 +1626,9 @@ void Framework::draw_ui() {
                 ImGui::SetNextWindowFocus();
             }
 
-            ImGui::BeginChild("UEVRRightPane", ImVec2(0, 0), true, ImGuiWindowFlags_::ImGuiWindowFlags_AlwaysUseWindowPadding);
+            ImGui::BeginChild("UEVRRightPane", ImVec2(0, sidebar_pane_height), true, ImGuiWindowFlags_::ImGuiWindowFlags_AlwaysUseWindowPadding);
             {
+                uevr::ui::scroll_settings_with_right_stick();
                 ImGui::BeginGroup();
 
                 if (m_sidebar_state.selected_entry > 0) {

@@ -48,6 +48,7 @@
 #include <sdk/FTextureRenderTargetResource.hpp>
 
 #include "Framework.hpp"
+#include "utility/CpuPipelineTiming.hpp"
 #include "Mods.hpp"
 #include "DumperMode.hpp"
 #include "mods/UObjectHook.hpp"
@@ -685,6 +686,7 @@ void* FFakeStereoRenderingHook::engine_tick_hook(sdk::UGameEngine* engine, float
         return result;
     }
 
+    const auto cpu_tick_begin = std::chrono::steady_clock::now();
     // Dumper mode: skip render-pipeline hooks (see DumperMode.hpp). Engine
     // tick dispatch below still runs, so plugins receive on_pre_engine_tick.
     if (!uevr::is_dumper_mode()) {
@@ -721,6 +723,7 @@ void* FFakeStereoRenderingHook::engine_tick_hook(sdk::UGameEngine* engine, float
         mod->on_pre_engine_tick(engine, delta);
     }
 
+    const auto cpu_tick_pre_done = std::chrono::steady_clock::now();
     void* result = nullptr;
 
     {
@@ -755,8 +758,14 @@ void* FFakeStereoRenderingHook::engine_tick_hook(sdk::UGameEngine* engine, float
 #endif
     }
 
+    const auto cpu_tick_original_done = std::chrono::steady_clock::now();
     for (auto& mod : mods) {
         mod->on_post_engine_tick(engine, delta);
+    }
+    if (tow2_is_current_game()) {
+        static thread_local uevr::diagnostics::CpuPipelineTiming timing;
+        timing.record("EngineTick(uevr_pre/original_including_waits/uevr_post)", cpu_tick_begin,
+            cpu_tick_pre_done, cpu_tick_original_done, std::chrono::steady_clock::now());
     }
 
     return result;

@@ -18,6 +18,7 @@
 #include "render/RenderDocCaptureService.hpp"
 
 #include "D3D12Hook.hpp"
+#include "utility/CpuPipelineTiming.hpp"
 
 static D3D12Hook* g_d3d12_hook = nullptr;
 
@@ -708,6 +709,7 @@ HRESULT D3D12Hook::present_internal(IDXGISwapChain3* swap_chain, UINT sync_inter
         return S_OK;
     }
 
+    const auto cpu_begin = std::chrono::steady_clock::now();
     if (d3d12->m_on_present) {
         d3d12->m_on_present(*d3d12);
 
@@ -730,6 +732,7 @@ HRESULT D3D12Hook::present_internal(IDXGISwapChain3* swap_chain, UINT sync_inter
         }
     }
 
+    const auto cpu_pre_done = std::chrono::steady_clock::now();
     ++g_present_depth;
 
     auto result = S_OK;
@@ -746,11 +749,18 @@ HRESULT D3D12Hook::present_internal(IDXGISwapChain3* swap_chain, UINT sync_inter
 
     --g_present_depth;
 
+    const auto cpu_present_done = std::chrono::steady_clock::now();
     if (d3d12->m_on_post_present) {
         d3d12->m_on_post_present(*d3d12);
     }
 
     d3d12->m_inside_present = false;
+
+    if (is_the_outer_worlds2_executable()) {
+        static thread_local uevr::diagnostics::CpuPipelineTiming timing;
+        timing.record("Present(pre_callback/desktop_present_or_skip/post_callback)", cpu_begin, cpu_pre_done,
+            cpu_present_done, std::chrono::steady_clock::now());
+    }
 
     return result;
 }
@@ -1075,4 +1085,3 @@ HRESULT WINAPI D3D12Hook::resize_target(IDXGISwapChain3* swap_chain, const DXGI_
 
     return create_swap_chain_fn(factory, device, hwnd, desc, p_fullscreen_desc, p_restrict_to_output, swap_chain);
 }*/
-

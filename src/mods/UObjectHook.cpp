@@ -31,6 +31,7 @@
 #include <sdk/UMotionControllerComponent.hpp>
 
 #include "uobjecthook/SDKDumper.hpp"
+#include "uobjecthook/ArrayView.hpp"
 #include "VR.hpp"
 
 #include "UObjectHook.hpp"
@@ -128,6 +129,26 @@ static bool has_module_backed_uobject_vtable(sdk::UObjectBase* object) {
     const auto first_function = vtable[0];
     return first_function != nullptr && !IsBadReadPtr(first_function, sizeof(void*)) &&
            utility::get_module_within(first_function).has_value();
+}
+
+// Browser validity is engine identity, not AddObject-hook enrollment. A valid
+// object (especially a class/default object) may never enter m_objects.
+static const char* browser_object_error(sdk::UObjectBase* object) {
+    if (!object) return "null object";
+    if (IsBadReadPtr(object, sdk::UObjectBase::get_class_size())) return "unreadable object";
+    const auto objects = sdk::FUObjectArray::get();
+    if (!objects) return "object registry unavailable";
+    const auto index = object->get_internal_index();
+    const auto count = objects->get_object_count();
+    if (count <= 0 || index >= (uint32_t)count) return "object index out of range";
+    const auto item = objects->get_object((int32_t)index);
+    sdk::UObjectBase* registered{};
+    SIZE_T read{};
+    if (!item || !ReadProcessMemory(GetCurrentProcess(), item, &registered, sizeof(registered), &read) || read != sizeof(registered)) {
+        return "unreadable registry slot";
+    }
+    if (registered != object) return "registry identity mismatch";
+    return nullptr;
 }
 
 UObjectHook::MotionControllerState::~MotionControllerState() {
@@ -2958,8 +2979,8 @@ void UObjectHook::ui_handle_object(sdk::UObject* object) {
         return;
     }
 
-    if (!this->exists_unsafe(object)) {
-        ImGui::Text("Invalid object");
+    if (const auto error = browser_object_error(object)) {
+        ImGui::Text("Cannot browse: %s", error);
         return;
     }
 
@@ -2973,8 +2994,8 @@ void UObjectHook::ui_handle_object(sdk::UObject* object) {
     }
 
 
-    if (!this->exists_unsafe(uclass)) {
-        ImGui::Text("Invalid class");
+    if (const auto error = browser_object_error(uclass)) {
+        ImGui::Text("Cannot browse class: %s", error);
         return;
     }
 
@@ -4161,9 +4182,18 @@ void UObjectHook::ui_handle_array_property(void* addr, sdk::FArrayProperty* prop
         return;
     }
 
-    const auto& array_generic = *(sdk::TArray<void*>*)((uintptr_t)addr + prop->get_offset());
+    const auto offset = prop->get_offset();
+    uobject_browser::ArrayView array_generic{};
+    SIZE_T bytes_read{};
+    if (offset < 0 || (uintptr_t)addr > UINTPTR_MAX - (uintptr_t)offset ||
+        !ReadProcessMemory(GetCurrentProcess(), (void*)((uintptr_t)addr + offset),
+            &array_generic, sizeof(array_generic), &bytes_read) ||
+        bytes_read != sizeof(array_generic) || !array_generic.valid()) {
+        ImGui::TextUnformatted("Invalid/unreadable array");
+        return;
+    }
 
-    if (array_generic.data == nullptr || array_generic.count == 0) {
+    if (array_generic.count == 0) {
         ImGui::Text("Empty array");
         return;
     }
@@ -4188,18 +4218,49 @@ void UObjectHook::ui_handle_array_property(void* addr, sdk::FArrayProperty* prop
     case "InterfaceProperty"_fnv:
     case "ObjectProperty"_fnv:
     {
-        const auto& array_obj = *(sdk::TArray<sdk::UObject*>*)((uintptr_t)addr + prop->get_offset());
+        const auto stride = uobject_browser::object_stride(inner_c_type == "InterfaceProperty");
 
-        for (auto obj : array_obj) {
-            std::wstring name = obj->get_class()->get_fname().to_string() + L" " + obj->get_fname().to_string();
+        // Bound work per UI frame without hiding entries. Expanded nodes have
+        // variable height, so a fixed-height ImGuiListClipper is inappropriate.
+        ImGui::PushID(prop);
+        const int pages = array_generic.count / 128 + (array_generic.count % 128 != 0);
+        const auto page_id = ImGui::GetID("array_page");
+        int page = std::clamp(ImGui::GetStateStorage()->GetInt(page_id, 0), 0, pages - 1);
+        if (pages > 1) {
+            ImGui::SliderInt("Array page (0-based)", &page, 0, pages - 1);
+            ImGui::GetStateStorage()->SetInt(page_id, page);
+        }
+        const int start = page * 128;
+        const int end = start + std::min(128, array_generic.count - start);
+        for (int i = start; i < end; ++i) {
+            const auto entry = array_generic.element(i, stride);
+            sdk::UObject* obj{};
+            if (!entry || !ReadProcessMemory(GetCurrentProcess(), (void*)entry, &obj, sizeof(obj), &bytes_read) ||
+                bytes_read != sizeof(obj)) {
+                ImGui::Text("[%d] unreadable array slot", i);
+                continue;
+            }
+            if (const auto error = browser_object_error(obj)) {
+                ImGui::Text("[%d] %s", i, error);
+                continue;
+            }
+            const auto klass = obj->get_class();
+            if (const auto error = browser_object_error(klass)) {
+                ImGui::Text("[%d] class: %s", i, error);
+                continue;
+            }
+            std::wstring name = klass->get_fname().to_string() + L" " + obj->get_fname().to_string();
             const auto narrow_name = utility::narrow(name);
 
-            if (ImGui::TreeNode(narrow_name.data())) {
+            ImGui::PushID(i);
+            if (ImGui::TreeNode("object", "[%d] %s", i, narrow_name.c_str())) {
                 auto scope = m_path.enter(narrow_name);
                 ui_handle_object(obj);
                 ImGui::TreePop();
             }
+            ImGui::PopID();
         }
+        ImGui::PopID();
 
         break;
     }
@@ -4207,9 +4268,9 @@ void UObjectHook::ui_handle_array_property(void* addr, sdk::FArrayProperty* prop
     {
         // Not really an array of void* but we will skip over individual elements
         // using pointer arithmetic.
-        const auto& array_obj = *(sdk::TArray<void*>*)((uintptr_t)addr + prop->get_offset());
+        const auto& array_obj = array_generic;
 
-        if (array_obj.data == nullptr || array_obj.count == 0) {
+        if (array_obj.data == 0 || array_obj.count == 0) {
             ImGui::Text("Empty array");
             return;
         }
@@ -4234,7 +4295,7 @@ void UObjectHook::ui_handle_array_property(void* addr, sdk::FArrayProperty* prop
         }
 
         for (size_t i = 0; i < array_obj.count; ++i) try {
-            auto element = (void*)((uintptr_t)array_obj.data + (i * element_size));
+            auto element = (void*)array_obj.element((int32_t)i, (size_t)element_size);
 
             if (element != nullptr) {
                 if (ImGui::TreeNode((void*)element, "Element %d", i)) {

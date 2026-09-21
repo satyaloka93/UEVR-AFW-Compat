@@ -24,6 +24,7 @@
 #include "d3d12/DirectXTK.hpp"
 
 #include "D3D12Component.hpp"
+#include "AfwBorderRaster.hpp"
 
 //#define AFR_DEPTH_TEMP_DISABLED
 
@@ -757,7 +758,8 @@ vr::EVRCompositorError D3D12Component::on_frame(VR* vr) {
         auto desc = vr->rawDepthTex->GetDesc();
         for (int i = 0; i < 2; i++) {
             if (vr->depthDesc[i].pTexture == NULL || vr->depthDesc[i].pTexture->GetDesc().Width != desc.Width ||
-                vr->depthDesc[i].pTexture->GetDesc().Height != desc.Height) {
+                vr->depthDesc[i].pTexture->GetDesc().Height != desc.Height ||
+                vr->depthDesc[i].pTexture->GetDesc().Format != desc.Format) {
                 vr->d3d12Renderer->CreateTexture(
                     desc.Width, desc.Height, desc.Format, D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE, vr->depthDesc[i], true);
             }
@@ -776,8 +778,11 @@ vr::EVRCompositorError D3D12Component::on_frame(VR* vr) {
         auto desc = vr->rawMotionVectorsTex->GetDesc();
         for (int i = 0; i < 2; i++) {
             if (vr->motionVectorsDesc[i].pTexture == NULL || vr->motionVectorsDesc[i].pTexture->GetDesc().Width != desc.Width ||
-                vr->motionVectorsDesc[i].pTexture->GetDesc().Height != desc.Height) {
-                vr->d3d12Renderer->CreateTexture(desc.Width, desc.Height, DXGI_FORMAT_R16G16_FLOAT,
+                vr->motionVectorsDesc[i].pTexture->GetDesc().Height != desc.Height ||
+                vr->motionVectorsDesc[i].pTexture->GetDesc().Format != desc.Format) {
+                spdlog::info("[AFW copy layout] Allocate motion target eye={} size={}x{} source_format={}",
+                    i, desc.Width, desc.Height, (int)desc.Format);
+                vr->d3d12Renderer->CreateTexture(desc.Width, desc.Height, desc.Format,
                     D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE, vr->motionVectorsDesc[i], true);
             }
         }
@@ -2228,13 +2233,21 @@ void D3D12Component::OpenXR::copy(
     const auto& swapchain = vr->m_openxr->swapchains[swapchain_idx];
     auto& ctx = this->contexts[swapchain_idx];
 
+    const bool measure_native = !vr->is_using_afr();
+    auto& timing = ctx.timing;
+    const auto elapsed_ms = [](auto start) {
+        return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+    };
+
     XrSwapchainImageAcquireInfo acquire_info{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
 
     uint32_t texture_index{};
     if (is_the_outer_worlds2_executable()) {
         SPDLOG_INFO_EVERY_N_SEC(1, "[TOW2 OpenXR Copy] acquire begin swapchain={} frame={}", swapchain_idx, vr->m_render_frame_count);
     }
+    const auto acquire_start = std::chrono::steady_clock::now();
     auto result = xrAcquireSwapchainImage(swapchain.handle, &acquire_info, &texture_index);
+    if (measure_native) timing.acquire_ms += elapsed_ms(acquire_start);
 
     if (result == XR_ERROR_RUNTIME_FAILURE) {
         spdlog::error("[VR] xrAcquireSwapchainImage failed: {}", vr->m_openxr->get_result_string(result));
@@ -2257,7 +2270,9 @@ void D3D12Component::OpenXR::copy(
         XrSwapchainImageWaitInfo wait_info{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
         //wait_info.timeout = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::seconds(1)).count();
         wait_info.timeout = XR_INFINITE_DURATION;
+        const auto wait_start = std::chrono::steady_clock::now();
         result = xrWaitSwapchainImage(swapchain.handle, &wait_info);
+        if (measure_native) timing.wait_ms += elapsed_ms(wait_start);
         if (is_the_outer_worlds2_executable()) {
             SPDLOG_INFO_EVERY_N_SEC(1, "[TOW2 OpenXR Copy] wait complete swapchain={} image={} result={} frame={}",
                 swapchain_idx, texture_index, vr->m_openxr->get_result_string(result), vr->m_render_frame_count);
@@ -2267,6 +2282,8 @@ void D3D12Component::OpenXR::copy(
             spdlog::error("[VR] xrWaitSwapchainImage failed: {}", vr->m_openxr->get_result_string(result));
         } else {
             auto& texture_ctx = ctx.texture_contexts[texture_index];
+
+            const auto context_start = std::chrono::steady_clock::now();
 
             if (is_the_outer_worlds2_executable() && texture_ctx->commands.waiting_for_fence) {
                 texture_ctx->commands.wait(0);
@@ -2285,6 +2302,22 @@ void D3D12Component::OpenXR::copy(
                 }
             } else {
                 texture_ctx->commands.wait(INFINITE);
+            }
+
+            if (measure_native) timing.context_ms += elapsed_ms(context_start);
+            // Reuse only after the existing command-context fence retirement.
+            // Each image owns its queries; no shared slot can be overwritten.
+            bool gpu_sample = false;
+            if (measure_native && texture_ctx->commands.ready() &&
+                !texture_ctx->commands.waiting_for_fence && !texture_ctx->commands.has_commands) {
+                if (auto ms = texture_ctx->copy_timer.collect()) {
+                    ++timing.samples;
+                    timing.gpu_ms += *ms;
+                    timing.gpu_max_ms = (std::max)(timing.gpu_max_ms, *ms);
+                }
+                auto& hook = g_framework->get_d3d12_hook();
+                gpu_sample = texture_ctx->copy_timer.begin(hook->get_device(),
+                    hook->get_command_queue(), texture_ctx->commands.cmd_list.Get());
             }
 
             if (pre_commands) {
@@ -2318,7 +2351,62 @@ void D3D12Component::OpenXR::copy(
                 (*additional_commands)(texture_ctx->commands);
             }
 
+            // Draw only on an acquired final eye image, after copying from
+            // AFW. Neither its input nor its persistent output is modified.
+            const bool border_left = swapchain_idx == (uint32_t)runtimes::OpenXR::SwapchainIndex::AFR_LEFT_EYE;
+            const bool border_right = swapchain_idx == (uint32_t)runtimes::OpenXR::SwapchainIndex::AFR_RIGHT_EYE;
+            if (resource && vr->is_using_afw() && (border_left || border_right)) {
+                auto* final_image = ctx.textures[texture_index].texture;
+                const auto desc = final_image->GetDesc();
+                if ((desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET) && texture_ctx->rtv_heap &&
+                    texture_ctx->commands.ready()) {
+                    HMODULE addon{};
+                    if (GetModuleHandleExW(0, L"CheekyFoveatedDLSS.addon64", &addon)) {
+                        using Query = unsigned(__cdecl*)(unsigned, unsigned, unsigned, float*, unsigned);
+                        const auto query = reinterpret_cast<Query>(GetProcAddress(addon, "CheekyAFWBorderV1"));
+                        float bounds[5]{};
+                        const bool draw = query && query(border_right ? 1U : 0U,
+                            static_cast<unsigned>(desc.Width), desc.Height, bounds, 5) == 1;
+                        FreeLibrary(addon);
+                        if (draw) {
+                            thread_local std::vector<D3D12_RECT> rectangles;
+                            rectangles.clear();
+                            vrmod::afw_border_rectangles(bounds, static_cast<int>(desc.Width), static_cast<int>(desc.Height),
+                                [&](int l, int t, int r, int b) { rectangles.push_back({l, t, r, b}); });
+                            if (!rectangles.empty()) {
+                                const float red[]{1.f, 0.f, 0.f, 1.f};
+                                texture_ctx->commands.cmd_list->ClearRenderTargetView(texture_ctx->get_rtv(), red,
+                                    static_cast<UINT>(rectangles.size()), rectangles.data());
+                                texture_ctx->commands.has_commands = true;
+                                SPDLOG_INFO_EVERY_N_SEC(5, "[Cheeky AFW border] final OpenXR image eye={} bounds={:.3f},{:.3f},{:.3f},{:.3f}",
+                                    border_right ? 1 : 0, bounds[0], bounds[1], bounds[2], bounds[3]);
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (gpu_sample) {
+                texture_ctx->copy_timer.end(texture_ctx->commands.cmd_list.Get());
+                texture_ctx->commands.has_commands = true;
+            }
             texture_ctx->commands.execute();
+            if (gpu_sample && texture_ctx->commands.waiting_for_fence) {
+                texture_ctx->copy_timer.submitted(texture_ctx->commands.fence.Get(), texture_ctx->commands.fence_value);
+            }
+            if (measure_native) {
+                ++timing.copies;
+                if (elapsed_ms(timing.since) >= 5000.0) {
+                    uint64_t failures = 0;
+                    for (const auto& image : ctx.texture_contexts) failures += image->copy_timer.failures;
+                    spdlog::info("[OpenXR copy timing] swapchain={} copies={} gpu_samples={} gpu_avg_ms={:.4f} gpu_max_ms={:.4f} acquire_cpu_ms={:.4f} image_wait_cpu_ms={:.4f} context_wait_cpu_ms={:.4f} timer_failures_total={}",
+                        swapchain_idx, timing.copies, timing.samples,
+                        timing.samples ? timing.gpu_ms / timing.samples : -1.0, timing.gpu_max_ms,
+                        timing.acquire_ms / timing.copies, timing.wait_ms / timing.copies,
+                        timing.context_ms / timing.copies, failures);
+                    timing = {};
+                }
+            }
             if (is_the_outer_worlds2_executable()) {
                 SPDLOG_INFO_EVERY_N_SEC(1, "[TOW2 OpenXR Copy] command execute complete swapchain={} image={} frame={}",
                     swapchain_idx, texture_index, vr->m_render_frame_count);

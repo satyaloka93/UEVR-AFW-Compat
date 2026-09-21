@@ -134,6 +134,16 @@ public:
 
     XrResult begin_frame();
     XrResult end_frame(const std::vector<XrCompositionLayerBaseHeader*>& quad_layers, bool has_depth = false);
+    void log_submission_stats(bool force = false); // Called under sync_mtx.
+
+    struct SubmissionStats {
+        uint64_t attempts{}, accepted{}, native_attempts{}, repaired{}, invalid_time{};
+        uint64_t begin_errors{}, discarded{}, waits{};
+        double wait_ms{}, end_ms{}; // CPU API durations, NOT GPU timings.
+        XrResult last_end_result{XR_SUCCESS};
+        XrResult last_begin_result{XR_SUCCESS};
+        std::chrono::steady_clock::time_point since{std::chrono::steady_clock::now()};
+    } submission_stats;
 
     void begin_profile() {
         if (!this->profile_calls) {

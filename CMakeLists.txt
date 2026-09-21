@@ -83,12 +83,12 @@ FetchContent_Declare(bddisasm
 )
 FetchContent_MakeAvailable(bddisasm)
 
-message(STATUS "Fetching kananlib (7a99a94cea3dbcbd46b54885bd3d04f1d242e21a)...")
+message(STATUS "Fetching kananlib (49fdf2d3b1db350e370beacb607d5721bc2911ad)...")
 FetchContent_Declare(kananlib
 	GIT_REPOSITORY
 		"https://github.com/cursey/kananlib"
 	GIT_TAG
-		7a99a94cea3dbcbd46b54885bd3d04f1d242e21a
+		49fdf2d3b1db350e370beacb607d5721bc2911ad
 )
 FetchContent_MakeAvailable(kananlib)
 
@@ -775,6 +775,7 @@ list(APPEND uevr_SOURCES
 	"src/hooks/DInputHook.cpp"
 	"src/hooks/WindowsMessageHook.cpp"
 	"src/hooks/XInputHook.cpp"
+	"src/mods/DlssNeuralRendering.cpp"
 	"src/mods/FrameworkConfig.cpp"
 	"src/mods/ImGuiThemeHelpers.cpp"
 	"src/mods/LuaLoader.cpp"
@@ -822,6 +823,16 @@ list(APPEND uevr_SOURCES
 	"src/hooks/DInputHook.hpp"
 	"src/hooks/WindowsMessageHook.hpp"
 	"src/hooks/XInputHook.hpp"
+	"src/mods/AddonCommandListGpu.hpp"
+	"src/mods/AddonCommandListLifetime.hpp"
+	"src/mods/AddonDisabled19250.hpp"
+	"src/mods/AddonFont19250.hpp"
+	"src/mods/AddonShaderBindings.hpp"
+	"src/mods/AddonStyle19250.hpp"
+	"src/mods/AddonSwapchain.hpp"
+	"src/mods/AddonText19250.hpp"
+	"src/mods/AddonTooltip19250.hpp"
+	"src/mods/DlssNeuralRendering.hpp"
 	"src/mods/FrameworkConfig.hpp"
 	"src/mods/ImGuiThemeHelpers.hpp"
 	"src/mods/LuaLoader.hpp"
@@ -837,6 +848,8 @@ list(APPEND uevr_SOURCES
 	"src/mods/pluginloader/FUObjectArrayFunctions.hpp"
 	"src/mods/pluginloader/UScriptStructFunctions.hpp"
 	"src/mods/uobjecthook/SDKDumper.hpp"
+	"src/mods/vr/AfwBorderRaster.hpp"
+	"src/mods/vr/AfwCopyLayout.hpp"
 	"src/mods/vr/CVarManager.hpp"
 	"src/mods/vr/D3D11Component.hpp"
 	"src/mods/vr/D3D12Component.hpp"
@@ -847,10 +860,12 @@ list(APPEND uevr_SOURCES
 	"src/mods/vr/UpscaleHelper.hpp"
 	"src/mods/vr/d3d12/ComPtr.hpp"
 	"src/mods/vr/d3d12/CommandContext.hpp"
+	"src/mods/vr/d3d12/CopyGpuTimer.hpp"
 	"src/mods/vr/d3d12/DirectXTK.hpp"
 	"src/mods/vr/d3d12/TextureContext.hpp"
 	"src/mods/vr/runtimes/OpenVR.hpp"
 	"src/mods/vr/runtimes/OpenXR.hpp"
+	"src/mods/vr/runtimes/OpenXRSubmissionPolicy.hpp"
 	"src/mods/vr/runtimes/VRRuntime.hpp"
 	"src/mods/vr/shaders/ps.hpp"
 	"src/mods/vr/shaders/vs.hpp"
@@ -859,6 +874,7 @@ list(APPEND uevr_SOURCES
 	"src/render/RenderDocDxgiProofHooks.hpp"
 	"src/uevr-imgui/font_robotomedium.hpp"
 	"src/uevr-imgui/uevr_imconfig.hpp"
+	"src/utility/CpuPipelineTiming.hpp"
 	"src/utility/ImGui.hpp"
 	"src/utility/Logging.hpp"
 	"src/uevr-imgui/imgui_impl_dx11.h"
@@ -984,5 +1000,48 @@ uevr_attach_full_renderdoc(uevr)
 unset(CMKR_TARGET)
 unset(CMKR_SOURCES)
 
-	"src/mods/DlssNeuralRendering.cpp"
-	"src/mods/DlssNeuralRendering.hpp"
+# Target uevr_cvar_interface_test
+set(CMKR_TARGET uevr_cvar_interface_test)
+set(uevr_cvar_interface_test_SOURCES "")
+
+list(APPEND uevr_cvar_interface_test_SOURCES
+	"scripts/test-cvar-interface.cpp"
+)
+
+list(APPEND uevr_cvar_interface_test_SOURCES
+	cmake.toml
+)
+
+set(CMKR_SOURCES ${uevr_cvar_interface_test_SOURCES})
+add_executable(uevr_cvar_interface_test)
+
+if(uevr_cvar_interface_test_SOURCES)
+	target_sources(uevr_cvar_interface_test PRIVATE ${uevr_cvar_interface_test_SOURCES})
+endif()
+
+get_directory_property(CMKR_VS_STARTUP_PROJECT DIRECTORY ${PROJECT_SOURCE_DIR} DEFINITION VS_STARTUP_PROJECT)
+if(NOT CMKR_VS_STARTUP_PROJECT)
+	set_property(DIRECTORY ${PROJECT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT uevr_cvar_interface_test)
+endif()
+
+source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${uevr_cvar_interface_test_SOURCES})
+
+target_compile_definitions(uevr_cvar_interface_test PRIVATE
+	NOMINMAX
+)
+
+target_compile_features(uevr_cvar_interface_test PRIVATE
+	cxx_std_23
+)
+
+target_compile_options(uevr_cvar_interface_test PRIVATE
+	"/EHa"
+)
+
+target_link_libraries(uevr_cvar_interface_test PRIVATE
+	uesdk
+	Version
+)
+
+unset(CMKR_TARGET)
+unset(CMKR_SOURCES)

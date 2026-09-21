@@ -24,6 +24,36 @@ same behavior while preserving right-controller aim during gameplay.
 
 # Base profile configuration
 
+## September 20: right-thumbstick settings scrolling
+
+The expanded performance CVar panel exposed a separate input-routing gap.
+`VR.cpp` maps VR left stick to D-pad navigation and supplies RStick events, but
+the bundled ImGui manual-scroll path consumes LStick. The existing right-stick
+wheel conversion requires controller-ray intersection/mouse emulation. Thus
+right-stick events alone leave the list stuck. A headless test reproduces this;
+the original child already has a positive scroll range, disproving the initial
+auto-height-only hypothesis. Do not blame saved size alone for this case.
+
+`utility/FrameworkScroll.hpp`, called inside `UEVRRightPane`, directly consumes
+right-stick vertical analog input while the framework is focused. It does not
+require ray hover. It yields to mouse-wheel input (avoiding double scroll),
+active widgets, left-button dragging and popups. Scroll is bounded and capped
+per frame. Left-stick/D-pad navigation and gameplay bindings are unchanged.
+Both sidebar panes also receive explicit available-height bounds.
+
+`scripts/test-menu-scroll.cpp` builds against the actual bundled ImGui: reproduces
+legacy RStick failure, verifies up/down at 700px and 355px window heights,
+drag protection and existing mouse-wheel scrolling. Release build passes after
+making min/max calls Windows-macro-safe. In-headset confirmation remains pending.
+
+Deployed from AFW-PUBLISH on September 20 at 18:33:07 to the shared injector.
+DLL SHA256 `5b11894e1870ce52723af42e60dad41c0db9612b181f80d55953595b847211ff`;
+PDB SHA256 `02244fd9744ccc88f66e14494cc1419b031d81adda1eff94d11fcc9aa39ba8ee`.
+Both hashes verified; prior files have `.pre-native-openxr-20260920-183307.bak`
+suffixes. No CVar/profile changes. Test: fresh launch, open CVars/performance,
+right stick up/down without dragging a control, then verify normal gameplay
+after closing the framework.
+
 ```ini
 UI_Framework_FollowView=false
 UI_Framework_MouseEmulation=true

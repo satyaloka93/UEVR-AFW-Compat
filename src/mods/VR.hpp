@@ -51,6 +51,7 @@ public:
 
     int afw_since_inject_frame_count = 0;
     int last_dlss_frame_count = 0;
+    int dlss_continue_frame_count = 0;
 
     bool is_afw_last_frame = false;
     int afw_switching_skip_frames = 0;
@@ -84,6 +85,7 @@ public:
     bool is_using_ultra_responsive() { return m_ultra_responsive->value(); };
     bool is_fix_moving_object_brightness_flickering() { return m_fix_moving_object_brightness_flickering->value(); };
 
+    bool is_dlss_for_n_frame(int count) { return dlss_continue_frame_count > count; };
     bool is_no_dlss() { return (m_render_frame_count - last_dlss_frame_count) > 10; };
     bool is_never_dlss() { return (m_render_frame_count - last_dlss_frame_count) > 10 && last_dlss_frame_count == 0; };
 
@@ -984,6 +986,10 @@ private:
     const ModToggle::Ptr m_roomscale_movement{ ModToggle::create(generate_name("RoomscaleMovement"), false) };
     const ModToggle::Ptr m_roomscale_sweep{ ModToggle::create(generate_name("RoomscaleMovementSweep"), true) };
     const ModToggle::Ptr m_swap_controllers{ ModToggle::create(generate_name("SwapControllerInputs"), false) };
+    // Opt-in single-owner path for PSVR2Toolkit adaptive triggers and grip PCM.
+    // This remains false for every existing profile and is additionally gated to
+    // TOW2 + SteamVR PSVR2 OpenXR at the call site.
+    const ModToggle::Ptr m_external_psvr2_haptics{ ModToggle::create(generate_name("ExternalPSVR2Haptics"), false) };
     const ModCombo::Ptr m_horizontal_projection_override{ModCombo::create(generate_name("HorizontalProjectionOverride"), s_horizontal_projection_override_names)};
     const ModCombo::Ptr m_vertical_projection_override{ModCombo::create(generate_name("VerticalProjectionOverride"), s_vertical_projection_override_names)};
     const ModToggle::Ptr m_grow_rectangle_for_projection_cropping{ModToggle::create(generate_name("GrowRectangleForProjectionCropping"), false)};
@@ -1151,6 +1157,7 @@ public:
             *m_roomscale_movement,
             *m_roomscale_sweep,
             *m_swap_controllers,
+            *m_external_psvr2_haptics,
             *m_horizontal_projection_override,
             *m_vertical_projection_override,
             *m_grow_rectangle_for_projection_cropping,

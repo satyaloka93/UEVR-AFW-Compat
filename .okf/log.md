@@ -1,5 +1,83 @@
 # Update Log
 
+## 2026-09-20
+
+* **Consumption**: Used checkpoint/recovery and narrow-port guidance to prepare the AFW-PUBLISH source checkpoint. Published the validated CVar dependency to the existing private UESDK fork; excluded separate haptics/melee work, local diagnostics, generated shader churn and the pre-existing RenderDoc SDK edit. This is a source checkpoint, not a new binary release or a claim of measured FPS improvement.
+
+* **Framework right-stick scrolling**: Reproduced missing RStick scrolling in bundled ImGui; old child sizing already had scroll range. Added direct settings-pane RStick routing with wheel/drag/popup guards and explicit pane bounds. Actual-ImGui regression and Release pass; deployed/hash-verified at 18:33:07. See [menu input fix](playbooks/framework-menu-controller-pointer.md); in-headset retest pending.
+
+* **Performance-menu deployment**: User closed the game and requested deployment. Installed DLL/PDB hash-verified at 18:15:47, previous pair backed up. See [menu deployment record](fixes/cvar-script-controls-shf.md); live menu validation pending.
+
+* **Performance CVar menu built**: Added 20 grouped, registry-detected controls with bounded access, friendly labels/tooltips and release-to-apply sliders. Catalog/interface tests and Release build pass. Deployment blocked safely by running TOW2; installed binary unchanged. See [menu extension](fixes/cvar-script-controls-shf.md). No timing/A-B runner claim.
+
+* **SHf first visual/readback confirmation**: User reports eye mismatch appears gone; 12:11:12 log verifies VSM 1→0 and seven other frozen settings, with auto-script saved off. No validated access/readback failures; one unsupported interface remains unavailable. Other lighting settings also changed, so do not claim isolated VSM causality or FPS improvement. See [live CVar evidence](fixes/cvar-script-controls-shf.md).
+
+* **Cross-game script controls / SHf candidate**: Latest TOW2 script causes a ~1.97s batch stall and fights frozen HZB. Added opt-in auto/apply-once/cancel controls for all games, numeric no-op/conflict checks for TOW2/SHf, one entry per tick and write timing. SHf now uses validated menu access and bypasses legacy render-path queries. Browser no longer requires hook enrollment but retains engine-identity validation. Release and focused tests pass; deployed with backups. See [controls and evidence](fixes/cvar-script-controls-shf.md). Used OKF to preserve current-vs-historical SHf distinctions; live follow-up pending.
+
+* **Browser crash and CVar live result**: User confirms image correction and visible CVars; VSM readback succeeds. Matching dump localizes the new browsing crash to unvalidated array-entry name formatting. Added guarded traversal/interface stride correction and bounded object-array pages; Release and focused tests pass, in-game retest pending. See [browser validation](fixes/uobject-browser-array-validation.md) and [CVar evidence](fixes/tow2-validated-cvar-access.md). Gameplay performance regression remains unproven, not dismissed.
+
+* **CVar deployment dependency correction**: Renaming `cvar_loader.lua` broke the main TOW2 profile's required import at line 3. Restored a no-op compatibility module and fixed deployment to preserve that import while keeping automatic overrides disabled. See [validated CVar access](fixes/tow2-validated-cvar-access.md).
+
+* **TOW2 CVar repair candidate**: Installed-executable inspection confirms an additional setter at slot 18 where the legacy resolver expects GetInt. Added bounded registry/interface validation, game-thread numeric menu access and VSM readback, plus CPU engine/Present timing. Focused safety/interface tests pass; game validation pending. See [validated CVar access](fixes/tow2-validated-cvar-access.md). User confirmed the later September 19 run used OFXR and must remain separate from the standard Native baseline.
+
+## 2026-09-19
+
+* **Native cost live validation**: 4,976 accepted submissions, four timestamp repairs, no rejections. Stereo final copy ~0.065 ms and UI ~0.15 ms; Cheeky reduces sampled SR work but settled off/on submission rates both remain ~45/s. Recorded exact toggles and attribution limits in [cost attribution](fixes/native-openxr-cost-attribution.md).
+
+* **Native cost instrumentation**: Added sampled per-image final-copy GPU queries and CPU acquire/image/context wait summaries; reuses existing fences without blocking. Added Cheeky cost/freshness/toggle logging in its maintained repository. Builds and positive hardware-copy timing test pass; game validation pending. See [cost attribution](fixes/native-openxr-cost-attribution.md).
+
+* **Native timing first live result**: 6,036/6,036 recorded submissions accepted, eight repairs, zero rejected/discarded frames. Late Cheeky-active and inferred-off windows both remain about 45 submissions/s; no demonstrated Cheeky FPS uplift. Whole-session SteamVR GPU 12.774 ms and 44.46% reprojection leave a workload/cadence bottleneck. See [timing validation](fixes/openxr-authoritative-wait-frame.md).
+
+* **Standard Native OpenXR candidate**: Added a stale pipelined-display-time guard without changing image poses, AFW/AFR timing, or profiles. Replaced repeated begin/end failure output with bounded detailed errors and five-second delivery/API-CPU summaries. Policy assertions and the Windows Release build pass; live benefit remains pending. Recorded the 2,398 actual TOW2 end-frame failures and SteamVR timing baseline in [the timing concept](fixes/openxr-authoritative-wait-frame.md).
+
+* **Copy-layout candidate**: Preserved the failed upstream-build live dump and logs. Corrected hardcoded AFW motion-vector target format and format-blind reallocation; added complete NGX copy-layout validation with compile-time rejection tests and runtime format diagnostics. This repairs a concrete source defect but does not yet prove the GPU crash cause. See [the investigation](fixes/tow2-afw-gpu-copy-guard.md).
+
+* **Upstream reconciliation**: User confirmed restored TOW2 6DoF but another AFW GPU crash. Ported PureDark implementation-hook/velocity-detection fix `29d34c33`, OptiScaler routing `e5587035`, and scanner-hang dependency fix `c40eaab8` into the publish tree. Preserved the beta.4 plugin ABI; recorded deferred runtime-dependent features and corrected the earlier unimplemented copy-layout claim in [the investigation](fixes/tow2-afw-gpu-copy-guard.md).
+
+* **Correction**: Rebuilt and deployed `UEVRBackend.dll`/PDB from the authoritative `UEVR-AFW-PUBLISH` tree after identifying that the active older-tree backend omitted TOW2's explicit motion-controller enrollment. Preserved the old deployed pair as timestamped backups; retained the official beta.4 AFW runtime.
+* **Hardening**: Added fail-closed AFW D3D12 resource/barrier validation after Unreal GPUCrash reports with DRED breadcrumbs ending at `CopyResource`. The candidate is documented in [TOW2 AFW GPU copy and resource-state guard](fixes/tow2-afw-gpu-copy-guard.md) and remains pending a clean runtime validation.
+
+## 2026-09-09
+
+* **Maintenance**: Added isolated shader-binding snapshots and GPU-tested compute restoration after PSO/root/heap/resource-binding overwrite. [API18 integration](fixes/renodx-api18-status-text.md) remains undeployed; full native observation/ABI/resource lifetime coverage is still required.
+
+* **Maintenance**: Added isolated native barrier/copy helpers and verified WARP buffer/texture readbacks with no D3D12 debug-layer errors. [API18 runtime integration](fixes/renodx-api18-status-text.md) remains gated on resource/ABI/state-restoration and lifecycle synchronization; no deployment.
+
+* **Maintenance**: Recorded runtime-confirmed native command-list tag rejection and the isolated WARP-tested lifetime component in [the API18 investigation](fixes/renodx-api18-status-text.md). Runtime activation remains withheld pending real GPU operations/state restoration; deployment unchanged.
+
+* **Correction**: Recorded the actual NGX post-evaluation callback and missing native command-list tag/lifecycle contract in [the API18 investigation](fixes/renodx-api18-status-text.md). Earlier zero-hit probes covered a different path; the replacement diagnostics do not constitute an NR fix.
+
+* **Maintenance**: Recorded the user's GTA tooltip reference, restored word-wrapped addon hover help, and corrected the incomplete hook-choice inference in the API18 investigation.
+
+* **Consumption**: Used the earlier ReShade object-model investigation as historical context; its 4.x addon conclusions do not establish behavior of the new API18 addon.
+* **Maintenance**: Added [API18 status-text forwarding](fixes/renodx-api18-status-text.md), separating verified UI plumbing from still-unproven NR execution.
+
+## 2026-09-04
+
+* Added [Foveated DLSS 5 NR strategy](projects/dlssnr-foveation-strategy.md): ground truth, failure
+  patterns, and the ordered plan.
+* Removed the per-eye convergence shift from centred foveal regions. It placed the two box edges
+  202 px apart on a 2544 px eye, outside fusion range, which is the recurring "two boxes with a
+  seam". Deleted rather than re-defaulted, because `config.txt` already carried the old key and UEVR
+  rewrites that file from memory on exit, so a changed default could never take effect.
+* Adopted CheekyFoveatedDLSS's input-space floor/ceil rect derivation. Upscaling still fails with
+  `0xbad00005`; the plane dump that would explain it was gated on an already-exhausted counter and
+  never fired, now fixed.
+* Recorded that CheekyFoveatedDLSS hosts and initialises correctly but makes TOW2 ~19x slower and
+  wedges the render thread; its composite-shader design is still the route to oval/feather/live
+  periphery.
+
+## 2026-09-02
+* **Host taught the real ReShade interfaces; newer addon still parked**: `renodx-dlss5` 4.7 exposed three host approximations that were wrong for any addon but happened to suit 4.1.5. ReShade ships one **ImGui function table per ImGui version** and the host recorded the requested version without ever using it; 4.7 asks for 19250 (421 members) and draws a custom toggle widget, so `GetWindowDrawList` returning zero crashed its page — 32 members are now forwarded, indices **parsed** from the header after two attempts using summarised indices placed `Separator` on `PushID3` and `GetKeyName` on `ImDrawList_PathArcToFast` and broke a table that had been correct. Unimplemented slots now zero **both** RAX and XMM0 via a hand-assembled thunk that also records which member was entered, because ImGui's layout queries return `ImVec2` in XMM0 and an anonymous stub leaves a fault unattributable. The **object model** is rebuilt from `reshade_api_device.hpp`: `get_native` is slot 0 and `get_device` slot 3, where the old uniform fakes returned the queue, so 4.7 took an `ID3D12CommandQueue` for a `reshade::api::device`; private data now actually stores. 4.7 draws its full page after all this but its NR workset pool exhausts after ~7 s and preserves the game output, so **4.1.5 remains installed** and 4.7 is kept as `renodx-dlss5.addon64.v47`. See [ReShade host object model](fixes/reshade-host-object-model.md).
+* **Foveal box measured at 24%, both eyes matched, and the control mask decoded**: Frame time falls `16.80 ms → 12.80 ms` at fraction 0.35, measured in-run by bucketing present-to-present time on the foveation toggle — earlier figures compared different render targets and different box sizes and measured nothing. Three findings that each cost runs are now recorded. **Per-eye placement is a mirrored fraction of eye width, not a projection-derived offset**: OpenXR-Toolkit hardcodes ±0.04 and that value is correct here; a projection-matrix variant was built and removed because it produced the same value for both eyes. **Eye parity must flip per evaluation**, not per frame — a per-present counter never advanced past zero, so both eyes received the same sign and one was displaced backwards, which looked exactly like "NR reaches only one eye" and was written up as such until turning foveation off showed both eyes matching. **`DLSSNR.ControlMask` is a suppression mask**, not a blend weight: a bright centre removed all neural rendering, while the inverted ramp returns the box with a softened edge, and leaving `UseAutoMask` on alongside it tanks frame rate. Also fixed: the detour does not survive a device reset (the addon re-attaches its NGX hooks, so the Steam overlay killed the box permanently), and the periphery seed now copies only the four bands outside the box, since a whole-resource copy wiped the first eye's result. See [Foveated DLSS 5 Neural Rendering](fixes/dlss5-foveated-neural-rendering.md), which also proposes a proxy-resource scheme for the CyberpunkVR port's one-eye limit.
+
+## 2026-09-01
+* **Neural rendering confined to a foveal box; the signed runtime's caller check is beaten**: The CyberpunkVR port recorded detouring `nvngx_dlssnr!NVSDK_NGX_D3D12_EvaluateFeature` as permanently closed, because feature 18 returned `0xBAD00002` even to a read-only trampoline. That is too strong: the check reads the return address **at entry**, and an inline hook is entered by `JMP`, so what breaks it is *calling* the trampoline. A thunk that modifies parameters and then `JMP`s to the trampoline leaves the addon's own return address in place — zero refusals afterwards, against every evaluation refusing before, inside one run. Subrect rewriting on Color/Depth/MVec/Output then restricts NR to a centre box (reported ~40→60 fps at `0.35`, not yet properly measured). Two facts cost a title-screen hang and several runs and are recorded so they are never re-derived: the NGX parameter vtable is **not** the documented order (slot 1 is the resource setter, slot 6 is float, while 3 and 11 match the docs, which is what makes the documented order look confirmed), and resource parameters are **unreachable through `Get`** — the names in the binaries are log format strings, so the only source is intercepting `Set` slot 1. Also fixed: a frozen periphery, because `DLSSNR.Output` is persistent and blitted whole, and addon settings never persisting, because the addon reads its sixteen keys once at registration and never writes them back. The remaining artefact is a visible seam, confirmed genuine — NR Intensity 0 removes the rectangle. See [Foveated DLSS 5 Neural Rendering](fixes/dlss5-foveated-neural-rendering.md).
+
+## 2026-08-31
+* **DLSS 5 Neural Rendering hosted inside UEVR, both eyes confirmed**: Added a `DlssNeuralRendering` mod exporting the ten ReShade addon entry points, so `renodx-dlss5.addon64` runs with no ReShade in the process — necessary because a ReShade dxgi proxy stopped UEVR injecting into TOW2 entirely, and its OpenXR layer declines any session created without a device it wrapped. Both eyes receive the effect, which the same addon cannot do in the CyberpunkVR port. The reason is not "double-wide gives one contract": NR runs per eye at `3060x3120` against a `6120x3120` target, and works because both eyes present an identical cache key (same resource and dimensions, differing only in subrect origin, which is not part of the key). Performance at that resolution is unplayable and is the honest cost, not a defect. See [DLSS 5 Neural Rendering addon host](fixes/dlss5-neural-rendering-addon-host.md).
+
+
 ## 2026-08-13
 * **Alpha.4 published and verified**: Tagged source commit `eca65b9b`, built a correctly identified Release backend, published main/profiles/symbols archives plus SHA-256 manifest, then downloaded and rehashed every GitHub asset successfully. Backend `1e502f87...`, PDB `1d5d7214...`, tested amended PDAFW `b129118b...`. The release remains a prerelease pending SHf guard-path/clean-exit and broader maintained-game regression. See [PureDark AFW integration](projects/puredark-afw-integration.md).
 

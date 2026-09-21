@@ -19,6 +19,15 @@ timestamp: '2026-08-12T13:33:00+09:00'
 
 # Identity and proven baseline
 
+September 20 current-state update: active profile is now saved in Native mode
+with Native Stereo Fix/Same Pass enabled; the older AFW values below are
+historical, not the current deployed settings. Repeated CVar resolver failures
+and stereo-lighting complaints motivated [validated CVar access and explicit
+script controls](../fixes/cvar-script-controls-shf.md). The 12:10 launch verifies
+VSM changing from 1 to 0; user reports the mismatch appears gone, with automatic
+script application saved off. Other saved CVars also change, so VSM-only causality
+is not isolated. No rendering-mode/profile overwrite was deployed.
+
 - Executable: `SHf-Win64-Shipping.exe`
 - Engine family: crash metadata reports UE 5.4.2 (`5.4.2-0+++NOCEDev`).
   “UE5.7” remains only a historical branch/lineage label.

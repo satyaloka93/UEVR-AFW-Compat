@@ -18,6 +18,12 @@ for how this was distinguished from a crash.
 
 # Fix
 
+**2026-09-20 candidate:** [Validated registry/interface access](tow2-validated-cvar-access.md)
+replaces the menu bypass without re-enabling raw data writes or the old
+render-path scanner. The installed executable has an extra setter that the
+legacy resolver mistakes for GetInt. Live validation is pending; retain this
+historical bypass rationale and the deployment backups.
+
 Executable-scoped to TOW2:
 
 - Bypass the CVarManager reflected scanner/freeze path entirely.

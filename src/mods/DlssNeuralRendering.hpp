@@ -38,9 +38,9 @@ public:
     static std::shared_ptr<DlssNeuralRendering>& get();
 
     DlssNeuralRendering() {
-        m_options = { *m_enabled, *m_dispatch_present, *m_draw_addon_ui,
+        m_options = { *m_enabled, *m_dispatch_present, *m_exec_event, *m_draw_addon_ui,
                       *m_probe_ngx, *m_foveate, *m_foveal_preset, *m_model_res_pct, *m_foveal_fraction, *m_refresh_periphery,
-                      *m_convergence_pct, *m_swap_eyes, *m_close_probe, *m_cmd_probe, *m_blend, *m_blend_feather_px, *m_blend_debug, *m_blend_slot };
+                      *m_swap_eyes, *m_close_probe, *m_cmd_probe, *m_blend, *m_blend_feather_px, *m_blend_debug, *m_blend_slot };
     }
 
     std::string_view get_name() const override { return "DLSS 5"; }
@@ -75,6 +75,7 @@ public:
     // Consumed by the exported ReShade entry points and the NGX detour, none of which can be
     // members: the first are C exports, the second runs on the render thread from a hook.
     bool hosting_enabled() const { return m_enabled->value(); }
+    bool exec_event_enabled() const { return m_exec_event->value(); }
     bool foveation_enabled() const { return m_foveate->value(); }
     // One preset drives everything, matching the CyberpunkVR port: a percentage plus whether it is
     // a stereo slab. Width and height were separate controls here, so choosing 35% width left height
@@ -94,7 +95,6 @@ public:
     bool preset_is_slab() const { return m_foveal_preset->value() >= 2; }
     float foveal_fraction() const { return m_foveal_fraction->value(); }
     bool refresh_periphery_enabled() const { return m_refresh_periphery->value(); }
-    float convergence_pct() const { return m_convergence_pct->value(); }
     bool close_probe_enabled() const { return m_close_probe->value(); }
     bool cmd_probe_enabled() const { return m_cmd_probe->value(); }
     bool blend_enabled() const { return m_blend->value(); }
@@ -106,6 +106,7 @@ public:
 private:
     void load_addons_once();
     void deliver_destroy_device();
+    void deliver_addon_uninit();
     // Detours nvngx_dlssnr!NVSDK_NGX_D3D12_EvaluateFeature. Separate from hosting because it may
     // not be survivable -- see the foveation section of the .cpp for the anti-tamper result that
     // this is written to test.
@@ -113,6 +114,7 @@ private:
     void reset_ngx_probe();
 
     ModToggle::Ptr m_enabled{ ModToggle::create(generate_name("Enabled"), false) };
+    ModToggle::Ptr m_exec_event{ ModToggle::create(generate_name("ExecCommandListEvent"), true) };
     ModToggle::Ptr m_dispatch_present{ ModToggle::create(generate_name("DispatchPresent"), true) };
     ModToggle::Ptr m_draw_addon_ui{ ModToggle::create(generate_name("DrawAddonUI"), true) };
 
@@ -125,10 +127,10 @@ private:
     ModSliderInt32::Ptr m_model_res_pct{ ModSliderInt32::create(generate_name("ModelResolutionPct"),
                                                                 50, 100, 100) };
     ModCombo::Ptr m_foveal_preset{ ModCombo::create(generate_name("FovealPreset"),
-        { "35% Center Box  | Fastest",
-          "50% Center Box  | Performance",
-          "65% Stereo Slab | Balanced",
-          "80% Stereo Slab | Quality" }, 0) };
+        { "35% Center Box  | Fastest (edge doubles in stereo)",
+          "50% Center Box  | Performance (edge doubles in stereo)",
+          "65% Stereo Slab | Balanced -- one fused region",
+          "80% Stereo Slab | Quality  -- one fused region" }, 2) };
     // Independent, because full height keeps every row of the frame: a 65% slab is 65% of the
     // pixels where a 35% box was 12%. Width and height are traded against each other by hand.
     ModToggle::Ptr m_foveate{ ModToggle::create(generate_name("Foveate"), false) };
@@ -147,8 +149,6 @@ private:
     // exactly this shape -- a hardcoded +0.04 applied as +x to the left eye and -x to the right --
     // so 4% is a proven starting point. Expressed in pixels this was tested at 21 px against a
     // 2544 px eye, which is 0.8%: far too small to align anything.
-    ModSlider::Ptr m_convergence_pct{ ModSlider::create(generate_name("ConvergencePct"),
-                                                        0.0f, 0.12f, 0.04f) };
     // Settles whether Close() is a usable insertion point before any shader is written.
     // Fades NR into the untreated periphery across a ring just inside the box. Inserts a
     // compute dispatch mid-list, which clobbers whatever the addon had bound -- it rebinds
