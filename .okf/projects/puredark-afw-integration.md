@@ -58,6 +58,14 @@ standing rules are in [narrow port scope](../decisions/narrow-port-scope.md).
 
 # Public alpha releases
 
+## Alpha.5
+
+See [alpha.5](alpha5-release.md) for the backend-only checkpoint based on
+`832bff79`, validated CVar/menu/browser improvements, AFW safeguards and Native
+diagnostics. It requires official beta.4 runtime `76bbc4d7...`, not alpha.4's
+amended runtime; no new profiles or PDAFW runtime are bundled. Release notes
+retain unresolved ghosting and performance-validation limits.
+
 ## Alpha.4
 
 - Prerelease: `afw-beta4-compat-v0.1.0-alpha.4`
