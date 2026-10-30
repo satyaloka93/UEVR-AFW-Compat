@@ -4622,8 +4622,21 @@ bool FFakeStereoRenderingHook::setup_view_extensions() try {
         AddVectoredExceptionHandler(1, [](PEXCEPTION_POINTERS exception) -> LONG {
         static std::vector<Patch::Ptr> xrsystem_patches{};
         static std::unordered_set<uintptr_t> ignored_addresses{};
+        static std::mutex handler_mutex{};
+        thread_local bool in_handler{false};
 
         if (exception->ExceptionRecord->ExceptionCode == EXCEPTION_ACCESS_VIOLATION) {
+            // Every access violation in the process lands here, including routine
+            // IsBadReadPtr probes on loading/render threads. The static state above is
+            // not thread-safe, and a fault inside this handler must not re-enter it.
+            if (in_handler) {
+                return EXCEPTION_CONTINUE_SEARCH;
+            }
+
+            in_handler = true;
+            struct ReentryReset { ~ReentryReset() { in_handler = false; } } reentry_reset{};
+            std::scoped_lock handler_lock{handler_mutex};
+
             const auto exception_address = exception->ContextRecord->Rip;
 
             if (ignored_addresses.contains(exception_address)) {

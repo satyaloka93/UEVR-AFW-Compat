@@ -34,7 +34,9 @@ public:
     std::unordered_set<sdk::UObjectBase*> get_objects_by_class(sdk::UClass* uclass) const {
         std::shared_lock _{m_mutex};
         if (auto it = m_objects_by_class.find(uclass); it != m_objects_by_class.end()) {
-            return it->second;
+            auto result = it->second;
+            std::erase_if(result, [this](sdk::UObjectBase* object) { return is_tracked_object_stale_unsafe(object); });
+            return result;
         }
 
         return {};
@@ -44,6 +46,11 @@ public:
         std::shared_lock _{m_mutex};
         return exists_unsafe(object);
     }
+
+    // Avowed/TOW2 only: AddObject calls without a validated candidate are skipped,
+    // so a live object can be missing from m_objects. Adopt it on demand (game
+    // thread only) after FUObjectArray membership + class hierarchy validation.
+    bool try_adopt_untracked_object(sdk::UObjectBase* object);
 
     void activate();
 
@@ -134,7 +141,7 @@ public:
     };
 
     std::shared_ptr<MotionControllerState> get_or_add_motion_controller_state(sdk::USceneComponent* component) {
-        ensure_tow2_motion_controller_component_tracked(component);
+        try_adopt_untracked_object((sdk::UObjectBase*)component);
 
         {
             std::shared_lock _{m_mutex};
@@ -176,12 +183,20 @@ private:
     struct PersistentProperties;
 
     bool exists_unsafe(sdk::UObjectBase* object) const {
-        return m_objects.contains(object);
+        return m_objects.contains(object) && !is_tracked_object_stale_unsafe(object);
     }
+
+    // Avowed/TOW2 only (false elsewhere): the destructor hook misses objects there, so a
+    // tracked object is dead once its FUObjectArray slot no longer holds it. Never
+    // dereferences the object itself.
+    bool is_tracked_object_stale_unsafe(sdk::UObjectBase* object) const;
+    void remove_object_unsafe(sdk::UObjectBase* object);
 
     void hook();
     void add_new_object(sdk::UObjectBase* object);
-    void ensure_tow2_motion_controller_component_tracked(sdk::USceneComponent* component);
+    void refresh_untracked_objects_from_uobject_array();
+    struct MetaObject;
+    const std::wstring& get_meta_full_name(sdk::UObjectBase* object, MetaObject& meta);
 
     void tick_attachments(
         Rotator<float>* view_rotation, const float world_to_meters, Vector3f* view_location, bool is_double
@@ -232,11 +247,20 @@ private:
     bool m_hooked{false};
     bool m_fully_hooked{false};
     bool m_wants_activate{false};
+
+    // Guarded-game FUObjectArray recovery scan state (game thread only).
+    int32_t m_untracked_scan_high_water{0};
+    int32_t m_untracked_scan_cursor{0};
+    std::vector<sdk::UObjectBase*> m_slot_owners{}; // FUObjectArray index -> tracked object (guarded games)
+    uint64_t m_stale_pruned{0};
+
     float m_last_delta_time{1000.0f / 60.0f};
 
     struct DebugInfo {
         uint64_t constructor_calls{0};
         uint64_t destructor_calls{0};
+        uint64_t adopted_on_demand{0};
+        uint64_t adopted_by_scan{0};
     } m_debug{};
 
     glm::vec3 m_last_left_grip_location{};
@@ -250,6 +274,7 @@ private:
         std::wstring full_name{};
         sdk::UClass* uclass{nullptr};
         std::vector<sdk::UClass*> super_classes{};
+        int32_t index{-1}; // FUObjectArray slot at enrollment
     };
 
     std::unordered_set<sdk::UObjectBase*> m_objects{};

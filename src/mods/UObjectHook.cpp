@@ -294,6 +294,9 @@ void UObjectHook::hook() {
 
     SPDLOG_INFO("[UObjectHook] Added {} existing objects", m_objects.size());
 
+    // The recovery scan only needs to treat slots appended after this point as new.
+    m_untracked_scan_high_water = uobjectarray->get_object_count();
+
     SPDLOG_INFO("[UObjectHook] Deserializing persistent states");
     reload_persistent_states();
     SPDLOG_INFO("[UObjectHook] Deserialized {} persistent states", m_persistent_states.size());
@@ -561,18 +564,121 @@ void* UObjectHook::process_event_hook(sdk::UObject* obj, sdk::UFunction* func, v
     return result;
 }
 
-void UObjectHook::ensure_tow2_motion_controller_component_tracked(sdk::USceneComponent* component) {
-    if (!is_tow2_uobjecthook_game() || component == nullptr || exists(component)) {
-        return;
+// Exact FUObjectArray membership plus a fully array-backed class hierarchy.
+// add_new_object walks the class hierarchy and the destructor hook relies on
+// exact object identity, so never enroll a pointer that fails this check.
+// get_module_within falls back to GetModuleHandleEx (loader lock). UObject vtables
+// almost always live in the game executable, so check that cached range first.
+static bool has_fast_module_backed_uobject_vtable(sdk::UObjectBase* object) {
+    static const auto [exe_begin, exe_end] = []() -> std::pair<uintptr_t, uintptr_t> {
+        const auto exe = utility::get_executable();
+        const auto size = utility::get_module_size(exe);
+        return {(uintptr_t)exe, (uintptr_t)exe + size.value_or(0)};
+    }();
+
+    if (object == nullptr || IsBadReadPtr(object, sizeof(void*))) {
+        return false;
     }
 
-    // This path is deliberately narrower than AddObject discovery. It runs only
-    // when a caller explicitly requests a motion-controller state for a scene
-    // component, and only on TOW2 Steam where AddObject's argument layout varies.
-    // Never enroll an unverified pointer: add_new_object walks the class hierarchy
-    // and the destructor hook relies on exact object identity for cleanup.
-    if (!GameThreadWorker::get().is_same_thread()) {
-        SPDLOG_WARNING_EVERY_N_SEC(2, "[TOW2] Refusing to enroll an explicit motion-controller component off the game thread");
+    const auto vtable = *(uintptr_t*)object;
+    if (vtable >= exe_begin && vtable + sizeof(void*) <= exe_end) {
+        const auto first_function = *(uintptr_t*)vtable;
+        if (first_function >= exe_begin && first_function < exe_end) {
+            return true;
+        }
+    }
+
+    return has_module_backed_uobject_vtable(object);
+}
+
+static bool is_validated_array_backed_uobject(sdk::FUObjectArray* object_array, sdk::UObjectBase* object, const UObjectHook* hook) {
+    if (object_array == nullptr) {
+        return false;
+    }
+
+    const auto index_offset = sdk::UObjectBase::get_internal_index_offset();
+    const auto is_array_backed_object = [&](sdk::UObjectBase* candidate) -> bool {
+        if (candidate == nullptr || IsBadReadPtr(candidate, sizeof(void*)) ||
+            IsBadReadPtr((void*)((uintptr_t)candidate + index_offset), sizeof(uint32_t)) ||
+            !has_fast_module_backed_uobject_vtable(candidate)) {
+            return false;
+        }
+
+        const auto index = *(uint32_t*)((uintptr_t)candidate + index_offset);
+        if (index >= (uint32_t)object_array->get_object_count()) {
+            return false;
+        }
+
+        const auto item = object_array->get_object((int32_t)index);
+        return item != nullptr && item->object == candidate;
+    };
+
+    if (!is_array_backed_object(object)) {
+        return false;
+    }
+
+    auto klass = object->get_class();
+
+    for (uint32_t depth = 0; klass != nullptr && depth < 128; ++depth) {
+        // A live tracked class had its whole hierarchy validated when it was enrolled.
+        if (hook != nullptr && hook->exists((sdk::UObjectBase*)klass)) {
+            return true;
+        }
+
+        if (!is_array_backed_object((sdk::UObjectBase*)klass) || IsBadReadPtr(klass, 0x80)) {
+            return false;
+        }
+
+        const auto next = klass->get_super_struct();
+        if (next == klass) {
+            return false;
+        }
+
+        klass = (sdk::UClass*)next;
+        if (klass == nullptr) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool UObjectHook::try_adopt_untracked_object(sdk::UObjectBase* object) {
+    if (object == nullptr) {
+        return false;
+    }
+
+    if (exists(object)) {
+        return true;
+    }
+
+    // Only the guarded games skip AddObject calls; elsewhere a miss is authoritative.
+    // Game thread only, so the object cannot be destroyed by UE while it is validated.
+    if (!m_fully_hooked || !is_guarded_uobjecthook_game() || !GameThreadWorker::get().is_same_thread()) {
+        return false;
+    }
+
+    if (!is_validated_array_backed_uobject(sdk::FUObjectArray::get(), object, this)) {
+        return false;
+    }
+
+    add_new_object(object);
+
+    if (!exists(object)) {
+        return false;
+    }
+
+    ++m_debug.adopted_on_demand;
+    SPDLOG_INFO_EVERY_N_SEC(2, "[UObjectHook] Adopted FUObjectArray-backed object missed by guarded AddObject: {:x}", (uintptr_t)object);
+    return true;
+}
+
+// Guarded AddObject drops calls it cannot validate, which leaves spawned weapons,
+// components and actors invisible to get_objects_by_class/exists. Recover them from
+// FUObjectArray on the game thread: newly appended indices first, then a slow
+// background sweep for reused free-list slots. Bounded by count and wall time.
+void UObjectHook::refresh_untracked_objects_from_uobject_array() {
+    if (!is_guarded_uobjecthook_game()) {
         return;
     }
 
@@ -581,66 +687,162 @@ void UObjectHook::ensure_tow2_motion_controller_component_tracked(sdk::USceneCom
         return;
     }
 
-    const auto index_offset = sdk::UObjectBase::get_internal_index_offset();
-    const auto is_array_backed_object = [&](sdk::UObjectBase* object) -> bool {
-        if (object == nullptr || IsBadReadPtr(object, sizeof(void*)) ||
-            IsBadReadPtr((void*)((uintptr_t)object + index_offset), sizeof(uint32_t)) ||
-            !has_module_backed_uobject_vtable(object)) {
-            return false;
-        }
+    const auto object_count = object_array->get_object_count();
+    if (object_count <= 0) {
+        return;
+    }
 
-        const auto index = *(uint32_t*)((uintptr_t)object + index_offset);
-        if (index >= (uint32_t)object_array->get_object_count()) {
-            return false;
-        }
+    if (m_untracked_scan_high_water > object_count) {
+        m_untracked_scan_high_water = object_count;
+    }
 
-        const auto item = object_array->get_object((int32_t)index);
-        return item != nullptr && item->object == object;
+    if (m_untracked_scan_cursor >= object_count || m_untracked_scan_cursor < 0) {
+        m_untracked_scan_cursor = 0;
+    }
+
+    constexpr int32_t new_index_budget = 2048;
+    constexpr int32_t sweep_budget = 1024;
+    constexpr auto adopt_time_budget = std::chrono::microseconds{400};
+
+    const auto began = std::chrono::steady_clock::now();
+
+    struct Slot {
+        int32_t index;
+        sdk::UObjectBase* object; // current FUObjectArray occupant, may be null
     };
 
-    if (!is_array_backed_object(component)) {
-        SPDLOG_WARNING_EVERY_N_SEC(2, "[TOW2] Refusing to enroll a motion-controller component not backed by FUObjectArray");
-        return;
+    static thread_local std::vector<Slot> slots{};
+    struct Candidate {
+        sdk::UObjectBase* object;
+        int32_t index;
+        bool fresh; // from the newly appended region
+    };
+
+    static thread_local std::vector<Candidate> candidates{};
+    static thread_local std::vector<sdk::UObjectBase*> stale{};
+    slots.clear();
+    candidates.clear();
+    stale.clear();
+
+    const auto collect = [&](int32_t from, int32_t to) {
+        for (auto i = from; i < to; ++i) {
+            const auto item = object_array->get_object(i);
+            slots.push_back(Slot{i, item != nullptr ? item->object : nullptr});
+        }
+    };
+
+    const auto fresh_begin = m_untracked_scan_high_water;
+
+    const auto new_end = std::min(object_count, m_untracked_scan_high_water + new_index_budget);
+    collect(m_untracked_scan_high_water, new_end);
+    m_untracked_scan_high_water = new_end;
+
+    const auto sweep_end = std::min(object_count, m_untracked_scan_cursor + sweep_budget);
+    collect(m_untracked_scan_cursor, sweep_end);
+    m_untracked_scan_cursor = sweep_end >= object_count ? 0 : sweep_end;
+
+    // One shared lock for the whole slice: find tracked owners whose slot was freed or
+    // reused (destructor never seen) and occupants that are not tracked yet.
+    {
+        std::shared_lock _{m_mutex};
+
+        for (const auto& slot : slots) {
+            if ((size_t)slot.index < m_slot_owners.size()) {
+                const auto owner = m_slot_owners[slot.index];
+
+                // Common case: the slot still holds the object we enrolled there.
+                if (owner != nullptr && owner == slot.object) {
+                    continue;
+                }
+
+                if (owner != nullptr) {
+                    stale.push_back(owner);
+                }
+            }
+
+            if (slot.object != nullptr && !m_objects.contains(slot.object)) {
+                candidates.push_back(Candidate{slot.object, slot.index, slot.index >= fresh_begin && slot.index < new_end});
+            }
+        }
     }
 
-    auto klass = component->get_class();
-    bool reached_hierarchy_root = false;
+    if (!stale.empty()) {
+        std::unique_lock _{m_mutex};
 
-    for (uint32_t depth = 0; klass != nullptr && depth < 128; ++depth) {
-        if (!is_array_backed_object((sdk::UObjectBase*)klass) || IsBadReadPtr(klass, 0x80)) {
-            return;
+        for (const auto object : stale) {
+            if (is_tracked_object_stale_unsafe(object)) {
+                remove_object_unsafe(object);
+                ++m_stale_pruned;
+            }
         }
+    }
 
-        const auto next = klass->get_super_struct();
-        if (next == klass) {
-            return;
-        }
+    uint32_t added = 0;
+    const auto adopt_began = std::chrono::steady_clock::now();
 
-        klass = (sdk::UClass*)next;
-        if (klass == nullptr) {
-            reached_hierarchy_root = true;
+    for (size_t i = 0; i < candidates.size(); ++i) {
+        if ((i & 7) == 7 && std::chrono::steady_clock::now() - adopt_began > adopt_time_budget) {
+            // Resume fresh slots next tick instead of leaving them to the slow sweep;
+            // a level load appends thousands of objects (pawn meshes, hands) at once.
+            if (candidates[i].fresh) {
+                m_untracked_scan_high_water = std::min(m_untracked_scan_high_water, candidates[i].index);
+            }
             break;
         }
+
+        const auto object = candidates[i].object;
+        if (!is_validated_array_backed_uobject(object_array, object, this)) {
+            continue;
+        }
+
+        add_new_object(object);
+        ++added;
     }
 
-    if (!reached_hierarchy_root) {
-        return;
-    }
-
-    // Recheck exact membership immediately before enrollment. This runs on the
-    // game thread, so a valid component cannot be destroyed concurrently by UE.
-    if (!is_array_backed_object(component)) {
-        return;
-    }
-
-    add_new_object(component);
-
-    if (exists(component)) {
-        SPDLOG_INFO("[TOW2] Enrolled explicit motion-controller component missed by guarded AddObject: {:x}", (uintptr_t)component);
+    if (added > 0) {
+        m_debug.adopted_by_scan += added;
+        const auto now = std::chrono::steady_clock::now();
+        const auto collect_us = std::chrono::duration_cast<std::chrono::microseconds>(adopt_began - began).count();
+        const auto adopt_us = std::chrono::duration_cast<std::chrono::microseconds>(now - adopt_began).count();
+        SPDLOG_INFO_EVERY_N_SEC(5, "[UObjectHook] FUObjectArray recovery scan adopted {}/{} candidates (collect {} us, adopt {} us; total {}, fresh cursor {}/{})",
+            added, candidates.size(), collect_us, adopt_us, m_debug.adopted_by_scan, m_untracked_scan_high_water, object_count);
     }
 }
 
+static void read_full_name_unguarded(sdk::UObjectBase* object, std::wstring* out) {
+    *out = object->get_full_name();
+}
+
+// Objects adopted from FUObjectArray can be mid-construction or mid-destruction on the
+// async loading thread during level streaming; resolving their FName then faults inside
+// the game. No unwindable locals here, so SEH is allowed.
+static bool try_read_full_name(sdk::UObjectBase* object, std::wstring& out) {
+    __try {
+        read_full_name_unguarded(object, &out);
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
+const std::wstring& UObjectHook::get_meta_full_name(sdk::UObjectBase* object, MetaObject& meta) {
+    // Guarded games enroll thousands of objects per second, and full names are
+    // only needed by this UI, so they are resolved on first display.
+    if (meta.full_name.empty() && !try_read_full_name(object, meta.full_name)) {
+        meta.full_name = L"<unreadable>";
+    }
+
+    return meta.full_name;
+}
+
 void UObjectHook::add_new_object(sdk::UObjectBase* object) {
+    std::wstring full_name{};
+
+    if (!is_guarded_uobjecthook_game() && !try_read_full_name(object, full_name)) {
+        SPDLOG_WARNING_EVERY_N_SEC(2, "[UObjectHook] Refusing to track object whose name faulted: {:x}", (uintptr_t)object);
+        return;
+    }
+
     std::unique_lock _{m_mutex};
     std::unique_ptr<MetaObject> meta_object{};
 
@@ -660,6 +862,12 @@ void UObjectHook::add_new_object(sdk::UObjectBase* object) {
         return;
     }
 
+    // Re-enrollment (e.g. a new object at a stale entry's address): drop the old
+    // registration so its class buckets do not outlive it.
+    if (is_guarded_uobjecthook_game() && m_meta_objects.contains(object)) {
+        remove_object_unsafe(object);
+    }
+
     if (!m_reusable_meta_objects.empty()) {
         meta_object = std::move(m_reusable_meta_objects.back());
         m_reusable_meta_objects.pop_back();
@@ -670,7 +878,27 @@ void UObjectHook::add_new_object(sdk::UObjectBase* object) {
 
     m_objects.insert(object);
     meta_object->super_classes.clear();
-    meta_object->full_name = object->get_full_name();
+    meta_object->index = -1;
+
+    if (is_guarded_uobjecthook_game()) {
+        const auto index = *(int32_t*)((uintptr_t)object + sdk::UObjectBase::get_internal_index_offset());
+
+        if (index >= 0 && index < (1 << 24)) {
+            if ((size_t)index >= m_slot_owners.size()) {
+                m_slot_owners.resize((size_t)index + 1 + 65536, nullptr);
+            }
+
+            // A previous owner of this slot is dead even if its destructor was never seen.
+            if (const auto previous = m_slot_owners[index]; previous != nullptr && previous != object) {
+                remove_object_unsafe(previous);
+                ++m_stale_pruned;
+            }
+
+            m_slot_owners[index] = object;
+            meta_object->index = index;
+        }
+    }
+    meta_object->full_name = std::move(full_name);
     meta_object->uclass = object->get_class();
 
     m_most_recent_objects.push_front((sdk::UObject*)object);
@@ -755,6 +983,7 @@ void UObjectHook::on_pre_engine_tick(sdk::UGameEngine* engine, float delta) {
             }
         }
 
+        refresh_untracked_objects_from_uobject_array();
         update_persistent_states();
     }
 }
@@ -2350,6 +2579,8 @@ void UObjectHook::draw_developer() {
     if (ImGui::TreeNode("Debug Stats")) {
         // uint64_t
         ImGui::Text("Constructor calls: %llu", m_debug.constructor_calls);
+        ImGui::Text("Adopted (on demand / scan): %llu / %llu", m_debug.adopted_on_demand, m_debug.adopted_by_scan);
+        ImGui::Text("Stale entries pruned: %llu", m_stale_pruned);
         ImGui::Text("Destructor calls: %llu", m_debug.destructor_calls);
 
         ImGui::TreePop();
@@ -2771,7 +3002,7 @@ void UObjectHook::draw_main() {
                         return false;
                     }
 
-                    return m_meta_objects[a]->full_name < m_meta_objects[b]->full_name;
+                    return get_meta_full_name(a, *m_meta_objects[a]) < get_meta_full_name(b, *m_meta_objects[b]);
                 });
 
                 return classes;
@@ -2822,7 +3053,7 @@ void UObjectHook::draw_main() {
                 }
             }
 
-            const auto uclass_name = utility::narrow(m_meta_objects[uclass]->full_name);
+            const auto uclass_name = utility::narrow(get_meta_full_name(uclass, *m_meta_objects[uclass]));
             bool valid = true;
 
             if (!filter_empty) {
@@ -2830,7 +3061,7 @@ void UObjectHook::draw_main() {
 
                 for (auto super = (sdk::UStruct*)uclass; super; super = super->get_super_struct()) {
                     if (auto it = m_meta_objects.find(super); it != m_meta_objects.end()) {
-                        if (it->second->full_name.find(wide_filter) != std::wstring::npos) {
+                        if (get_meta_full_name(it->first, *it->second).find(wide_filter) != std::wstring::npos) {
                             valid = true;
                             break;
                         }
@@ -2858,7 +3089,7 @@ void UObjectHook::draw_main() {
                 }
 
                 std::sort(objects.begin(), objects.end(), [this](sdk::UObjectBase* a, sdk::UObjectBase* b) {
-                    return m_meta_objects[a]->full_name < m_meta_objects[b]->full_name;
+                    return get_meta_full_name(a, *m_meta_objects[a]) < get_meta_full_name(b, *m_meta_objects[b]);
                 });
 
                 if (uclass->is_a(sdk::AActor::static_class())) {
@@ -2925,7 +3156,7 @@ void UObjectHook::draw_main() {
                 }
 
                 for (const auto& object : objects) {
-                    const auto made = ImGui::TreeNode(utility::narrow(m_meta_objects[object]->full_name).data());
+                    const auto made = ImGui::TreeNode(utility::narrow(get_meta_full_name(object, *m_meta_objects[object])).data());
 
                     if (made) {
                         ui_handle_object((sdk::UObject*)object);
@@ -2961,7 +3192,7 @@ void UObjectHook::ui_standard_object_context_menu(sdk::UObjectBase* object) {
         };
 
         if (ImGui::Button("Copy Name")) {
-            sc(utility::narrow(m_meta_objects[object]->full_name));
+            sc(utility::narrow(get_meta_full_name(object, *m_meta_objects[object])));
         }
 
         if (ImGui::Button("Copy Address")) {
@@ -4490,54 +4721,85 @@ void* UObjectHook::add_object(void* rcx, void* rdx, void* r8, void* r9, void* st
     return result;
 }
 
+void UObjectHook::remove_object_unsafe(sdk::UObjectBase* object) {
+    auto it = m_meta_objects.find(object);
+    if (it == m_meta_objects.end()) {
+        return;
+    }
+
+    if (const auto index = it->second->index; index >= 0 && (size_t)index < m_slot_owners.size() && m_slot_owners[index] == object) {
+        m_slot_owners[index] = nullptr;
+    }
+
+#ifdef VERBOSE_UOBJECTHOOK
+    SPDLOG_INFO("Removing object {:x} {:s}", (uintptr_t)object, utility::narrow(it->second->full_name));
+#endif
+    m_objects.erase(object);
+    m_motion_controller_attached_components.erase((sdk::USceneComponent*)object);
+    m_spawned_spheres.erase((sdk::USceneComponent*)object);
+    m_spawned_spheres_to_components.erase((sdk::USceneComponent*)object);
+    m_components_with_spheres.erase((sdk::USceneComponent*)object);
+
+    if (object == m_overlap_detection_actor) {
+        m_overlap_detection_actor = nullptr;
+    }
+
+    if (object == m_overlap_detection_actor_left) {
+        m_overlap_detection_actor_left = nullptr;
+    }
+
+    if (object == m_camera_attach.object) {
+        m_camera_attach.object = nullptr;
+    }
+
+    /*for (auto super = (sdk::UStruct*)it->second->uclass; super != nullptr;) {
+        m_objects_by_class[(sdk::UClass*)super].erase(object);
+
+        // Just make sure we don't do any operations on super because it might be invalid...
+        if (!m_objects.contains(super)) {
+            SPDLOG_ERROR("Super for {:x} is not valid", (uintptr_t)object);
+            break;
+        }
+
+        super = super->get_super_struct();
+    }*/
+
+    for (auto super : it->second->super_classes) {
+        m_objects_by_class[super].erase(object);
+    }
+
+    m_reusable_meta_objects.push_back(std::move(it->second));
+    m_meta_objects.erase(object);
+}
+
+bool UObjectHook::is_tracked_object_stale_unsafe(sdk::UObjectBase* object) const {
+    if (!is_guarded_uobjecthook_game()) {
+        return false;
+    }
+
+    const auto it = m_meta_objects.find(object);
+    if (it == m_meta_objects.end() || it->second->index < 0) {
+        return false;
+    }
+
+    const auto object_array = sdk::FUObjectArray::get();
+    if (object_array == nullptr || it->second->index >= object_array->get_object_count()) {
+        return true;
+    }
+
+    const auto item = object_array->get_object(it->second->index);
+    return item == nullptr || item->object != object;
+}
+
 void* UObjectHook::destructor(sdk::UObjectBase* object, void* rdx, void* r8, void* r9) {
     auto& hook = UObjectHook::get();
 
     {
         std::unique_lock _{hook->m_mutex};
 
-        if (auto it = hook->m_meta_objects.find(object); it != hook->m_meta_objects.end()) {
+        if (hook->m_meta_objects.contains(object)) {
             ++hook->m_debug.destructor_calls;
-
-#ifdef VERBOSE_UOBJECTHOOK
-            SPDLOG_INFO("Removing object {:x} {:s}", (uintptr_t)object, utility::narrow(it->second->full_name));
-#endif
-            hook->m_objects.erase(object);
-            hook->m_motion_controller_attached_components.erase((sdk::USceneComponent*)object);
-            hook->m_spawned_spheres.erase((sdk::USceneComponent*)object);
-            hook->m_spawned_spheres_to_components.erase((sdk::USceneComponent*)object);
-            hook->m_components_with_spheres.erase((sdk::USceneComponent*)object);
-
-            if (object == hook->m_overlap_detection_actor) {
-                hook->m_overlap_detection_actor = nullptr;
-            }
-
-            if (object == hook->m_overlap_detection_actor_left) {
-                hook->m_overlap_detection_actor_left = nullptr;
-            }
-
-            if (object == hook->m_camera_attach.object) {
-                hook->m_camera_attach.object = nullptr;
-            }
-
-            /*for (auto super = (sdk::UStruct*)it->second->uclass; super != nullptr;) {
-                hook->m_objects_by_class[(sdk::UClass*)super].erase(object);
-
-                // Just make sure we don't do any operations on super because it might be invalid...
-                if (!hook->m_objects.contains(super)) {
-                    SPDLOG_ERROR("Super for {:x} is not valid", (uintptr_t)object);
-                    break;
-                }
-
-                super = super->get_super_struct();
-            }*/
-
-            for (auto super : it->second->super_classes) {
-                hook->m_objects_by_class[super].erase(object);
-            }
-
-            hook->m_reusable_meta_objects.push_back(std::move(it->second));
-            hook->m_meta_objects.erase(object);
+            hook->remove_object_unsafe(object);
         }
     }
 

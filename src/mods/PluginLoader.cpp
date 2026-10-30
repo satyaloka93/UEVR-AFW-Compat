@@ -695,7 +695,8 @@ namespace uobjecthook {
         auto& instance = UObjectHook::get();
         instance->activate();
 
-        return instance->exists((sdk::UObject*)obj);
+        // Adopts objects the guarded AddObject hook skipped (Avowed/TOW2); a plain lookup elsewhere.
+        return instance->try_adopt_untracked_object((sdk::UObject*)obj);
     }
 
     int get_objects_by_class(UEVR_UClassHandle klass, UEVR_UObjectHandle* out_objects, unsigned int max_objects, bool allow_default) {
