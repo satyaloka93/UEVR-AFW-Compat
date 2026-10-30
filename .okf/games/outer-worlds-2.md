@@ -13,7 +13,11 @@ tags:
 - motion-controllers
 - menu
 - mouse-emulation
-timestamp: '2026-08-08T19:35:00+09:00'
+- psvr2
+- adaptive-triggers
+- haptics
+- melee
+timestamp: '2026-08-14T09:55:00+09:00'
 ---
 
 # Status
@@ -41,7 +45,44 @@ without observed continuing memory growth or OOM/GPU/device errors. Alpha.4
 publishes this correction as an experimental prerelease; broader regression is
 still required before stable promotion. See [TOW2 FMalloc discovery and memory growth](../fixes/tow2-fmalloc-memory-leak.md).
 
+# Experimental PSVR2 per-gun haptics
+
+A default-off prototype now mirrors the Cyberpunk gameplay-profile architecture:
+TOW2 Lua classifies the equipped gun and publishes semantic profile/shot events,
+a minimal UEVR plugin relays them over localhost, and a generalized
+PSVR2Toolkit bridge exclusively owns Sense adaptive triggers and grip PCM.
+
+The initial shot signal is native XInput rumble correlated with held R2. After
+a prior-backend OpenXR-only baseline, the v1 candidate was staged in the
+experimental TOW2 deployment and the user confirmed adaptive triggers work
+across tested pistols and rifles. Runtime logs also prove correct live profile
+selection and four calibrated Pulse Hammer downstrokes.
+
+The next candidate routed those exact native downstroke episodes through
+Toolkit grip PCM with a 0.45-0.85 speed-scaled swing. Runtime confirmed the
+feedback was present, but the user reported late sound/haptics and unreliable
+sensible target impact. The log contained 30 swings and 29 inferred impacts at
+a median 153 ms after attack, including non-contact-like attempts. Native
+rumble is therefore delayed attack/animation feedback, not contact evidence;
+the rumble impact path was removed. A follow-up tracked-weapon sweep was also
+runtime-rejected: 22 attempted early edges were only 2 ms median ahead of native
+commit, there were zero contacts/impacts, failed tip resolution caused 5,804
+fallback logs in 74 seconds, no haptics were felt, and native sound/damage still
+arrived roughly 1–2 seconds after motion. The candidate was rolled back to the
+prior impact-disabled baseline. Native timing requires a safe TOW2 combat
+endpoint, not generic `ApplyDamage`, which would bypass game combat rules and
+risk a second hit when the delayed native trace arrives. Current endpoint
+discovery is observation-only and bounded to an explicit candidate-function
+allowlist on the current pawn/weapon. The sole-actuator rule remains unchanged
+and the `_3dof` anchor remains untouched.
+See [TOW2 PSVR2 per-gun haptics](../fixes/tow2-psvr2-per-gun-haptics.md),
+the [CyberpunkVR Port design reference](../projects/cyberpunk-vr-port.md), and
+the [PSVR2Toolkit actuator reference](../projects/psvr2toolkit.md).
+
 # Safe startup state
+
+The 2026-09-19 deployment correction and AFW GPU-copy guard are recorded in
+[TOW2 AFW GPU copy and resource-state guard](../fixes/tow2-afw-gpu-copy-guard.md).
 
 TOW2 must start conservatively; AFW remains an ordinary runtime-selectable
 option rather than a restart-gated fork behavior:
@@ -247,9 +288,14 @@ ProcDump is denied. Do not infer AFW caused a title freeze unless
 - [Fixed framework menu controller pointer](../playbooks/framework-menu-controller-pointer.md)
 - [Explicit dynamic-component enrollment](../fixes/tow2-explicit-component-enrollment.md)
 - [FMalloc discovery and unbounded memory growth](../fixes/tow2-fmalloc-memory-leak.md)
+- [TOW2 PSVR2 per-gun and melee haptics](../fixes/tow2-psvr2-per-gun-haptics.md)
+- [CyberpunkVR Port PSVR2 reference](../projects/cyberpunk-vr-port.md)
+- [PSVR2Toolkit actuator/bridge reference](../projects/psvr2toolkit.md)
 
 # Citations
 
 - `TOW2_UEVR_FIX_SUMMARY.md`, `TOW2_UEVR_WORKLOG.md`
 - `<private-worklog-root>/PUREDARK_AFW_TOW2_WORKLOG.md`
 - `<evidence-root>/puredark-beta4-tow2-zero-ghosting-success-20260720/profile/log.txt`
+- [Cyberpunk PSVR2 adaptive-trigger/melee runbook](https://github.com/satyaloka93/cyberpunk-vr-port/blob/psvr2-tweaks/.okf/operations/psvr2-adaptive-triggers.md)
+- [PSVR2Toolkit bridge project](https://github.com/satyaloka93/PSVR2Toolkit/tree/cyberpunk-dsx-bridge/projects/psvr2_toolkit_dsx_bridge)

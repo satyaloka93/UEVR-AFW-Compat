@@ -5,7 +5,11 @@ game shows the same symptom.
 
 ## Stereo hook & discovery
 
+* [Avowed validated CVars](avowed-validated-cvars.md) — register-tail Release support and verified writes; live menu/image validation pending.
+
 * [Cross-game script controls and SHf CVars](cvar-script-controls-shf.md) — saved auto-apply/bypass, explicit one-shot scripts and no-op/conflict handling; first SHf VSM readback and visual improvement confirmed.
+
+* [Guarded AddObject object recovery](guarded-addobject-object-recovery.md) — Avowed/TOW2 AddObject guard skipped nearly all runtime objects, breaking Lua attachment profiles; FUObjectArray recovery with slot-index liveness, budgeted scan and VEH thread-safety.
 
 * [UObject browser array validation](uobject-browser-array-validation.md) — dump-proven name-formatting crash; live object guards, interface stride correction and bounded object-array pages; runtime retest pending.
 
@@ -61,3 +65,5 @@ game shows the same symptom.
 * [Avowed stale attachment guard](avowed-stale-attachment-guard.md) — reject invalidated crafting/loadout components before attachment ProcessEvent.
 * [OpenVR analog trigger fallback](openvr-analog-trigger-fallback.md) — TriggerValue action + binding preservation.
 * [PSVR2 Triangle d-pad](psvr2-triangle-dpad.md) — PSVR2-on-SteamVR input aliasing and R3 roles.
+* [TOW2 PSVR2 per-gun and melee haptics](tow2-psvr2-per-gun-haptics.md) — runtime-confirmed adaptive triggers plus an experimental calibrated-swing/provisional-impact path, using Lua semantics and a localhost relay to the single-owner PSVR2Toolkit grip-PCM bridge.
+* [DLSS 5 Neural Rendering addon host](dlss5-neural-rendering-addon-host.md) — UEVR exports the ReShade addon API itself; both eyes get neural rendering because double-wide stereo makes their cache keys identical.

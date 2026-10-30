@@ -45,6 +45,12 @@ stereo visuals in TOW2 and were reverted.
 
 # Reuse guidance
 
+September 27 Avowed counterexample: visible/readback-verified cascade count
+changes isolate its mismatch to multiple cascades; toggling VSM does not
+resolve it. Do not generalize the TOW2 diagnosis to every title. See the
+[Avowed cascade candidate](avowed-validated-cvars.md) for the separately
+submitted secondary-view hypothesis and pending same-pass test.
+
 Any UE5 title with per-eye shadow/lighting mismatch in native stereo: try
 `r.Shadow.Virtual.Enable=0` first, and bisect one CVar at a time before
 blaming the stereo pipeline.

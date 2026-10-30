@@ -2,9 +2,14 @@
 type: diagnostic
 title: Native OpenXR GPU copy and CPU pacing attribution
 description: Sample final-copy GPU work without added waits and correlate it with fresh Cheeky timing records.
-timestamp: 2026-09-19
+timestamp: 2026-09-27
 tags: [openxr, d3d12, performance, diagnostics]
 ---
+
+**Retired instrumentation:** September27 clean build removes UEVR's Native copy
+GPU/CPU timers, query storage and helper. Measurements below are historical;
+Cheeky's separate addon cost logging remains unchanged. See
+[diagnostic retirement](../projects/tow2-pacing-diagnostics.md) for deployment.
 
 The [timestamp guard](openxr-authoritative-wait-frame.md) accepted 6,036/6,036
 recorded Native submissions in the first live run, but both late Cheeky-on and

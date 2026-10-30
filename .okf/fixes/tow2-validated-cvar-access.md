@@ -89,6 +89,10 @@ It leaves Cheeky, 6DoF scripts, resolution, ReShade and game settings unchanged.
 
 # Performance measurements
 
+**Historical instrumentation:** Engine/Present CPU pipeline tracing was removed
+in the September27 clean build; validated CVar access remains intact. See
+[diagnostic retirement](../projects/tow2-pacing-diagnostics.md).
+
 TOW2 `[UEVR CPU pipeline]` five-second per-thread summaries measure mean/max:
 
 - EngineTick: UEVR pre-work (jobs, UI, pre callbacks), original tick including
