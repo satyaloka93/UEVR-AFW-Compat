@@ -29,6 +29,9 @@ int main() {
     const unsigned char boolean[]{0x83,0x79,0x50,0,0x0F,0x95,0xC0,0xC3};
     const unsigned char integer[]{0x8B,0x41,0x50,0xC3};
     const unsigned char floating[]{0xF3,0x0F,0x10,0x41,0x50,0xC3};
+    const unsigned char register_release[]{0x48,0x8B,0x01,0x48,0x8B,0x00,0xBA,1,0,0,0,0x48,0xFF,0xE0};
+    const unsigned char wrong_slot_release[]{0x48,0x8B,0x01,0x48,0x8B,0x40,8,0x48,0xFF,0xE0};
+    const unsigned char clobbered_release[]{0x48,0x8B,0x01,0x48,0x8B,0x00,0x31,0xC0,0x48,0xFF,0xE0};
     std::array<uintptr_t,32> slots{};
     std::memcpy(code,noop,sizeof(noop)); slots.fill(reinterpret_cast<uintptr_t>(code));
     auto put = [&](size_t slot, const auto& bytes) {
@@ -36,6 +39,7 @@ int main() {
     };
     put(15,null_return); put(16,release); put(17,setter); put(18,wrong_getter);
     put(19,boolean); put(20,integer); put(21,floating);
+    put(24,register_release); put(25,wrong_slot_release); put(26,clobbered_release);
     DWORD previous{};
     check(VirtualProtect(code,4096,PAGE_EXECUTE_READ,&previous), "protect fixture");
     FlushInstructionCache(GetCurrentProcess(),code,4096);
@@ -62,6 +66,25 @@ int main() {
     invalid[16]=slots[0]; const auto invalid_table=invalid.data();
     std::memcpy(object.data(),&invalid_table,sizeof(invalid_table));
     check(!variable->validate_access(), "missing Release rejected");
+    // Avowed: Release 15, Set 16, Bool 17, Int 18, Float 19.
+    std::array<uintptr_t,32> avowed=slots;
+    avowed[14]=slots[15]; avowed[15]=slots[24]; avowed[16]=slots[17];
+    avowed[17]=slots[19]; avowed[18]=slots[20]; avowed[19]=slots[21];
+    const auto avowed_table=avowed.data();
+    std::memcpy(object.data(),&avowed_table,sizeof(avowed_table));
+    check(variable->layout(16,18,19), "Avowed register-tail Release supported");
+    variable->Set(L"123",0x08000000);
+    check(variable->GetInt()==123, "Avowed integer setter/readback");
+    std::memcpy(object.data()+0x50,&value,sizeof(value));
+    check(variable->GetFloat()==value, "Avowed float readback");
+    auto wrong_slot=avowed; wrong_slot[15]=slots[25];
+    const auto wrong_table=wrong_slot.data();
+    std::memcpy(object.data(),&wrong_table,sizeof(wrong_table));
+    check(!variable->validate_access(), "nonzero destructor slot rejected");
+    auto clobbered=avowed; clobbered[15]=slots[26];
+    const auto clobbered_table=clobbered.data();
+    std::memcpy(object.data(),&clobbered_table,sizeof(clobbered_table));
+    check(!variable->validate_access(), "clobbered destructor register rejected");
     VirtualFree(code,0,MEM_RELEASE);
     std::puts("PASS verified CVar interface: extra-setter regression, read/write stubs, malformed rejection");
 }

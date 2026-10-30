@@ -26,6 +26,7 @@
 #include "frameworkConfig.hpp"
 
 #include "utility/Logging.hpp"
+#include "utility/ConcurrentInlineHook.hpp"
 
 #include "VR.hpp"
 #include "vr/AfwCopyLayout.hpp"
@@ -136,8 +137,7 @@ NVSDK_NGX_Result hk_NVSDK_NGX_D3D12_EvaluateFeature(
             src.pTexture = depth;
             src.initialState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
             vr->d3d12Renderer->Copy(InCmdList, vr->depthDesc[nEye], src);
-            SPDLOG_INFO_EVERY_N_SEC(1, "[AFW copy layout] Accepted eye={} depth_format={} mv_format={}",
-                (int)nEye, (int)depth->GetDesc().Format, (int)motionVectors->GetDesc().Format);
+
             // Seed a private copy first: AFW correction may only modify a
             // near-field region. DLSS/Cheeky must retain the original vectors.
             src.pTexture = motionVectors;
@@ -159,13 +159,8 @@ NVSDK_NGX_Result hk_NVSDK_NGX_D3D12_EvaluateFeature(
                     mvParams.InUEVelocityPrev = &vr->rawVelocityDesc[nEyeOther];
                     mvParams.InDepthPrev = &vr->depthDesc[nEyeOther];
                     vr->d3d12Renderer->CorrectMotionVectors(InCmdList, vr->motionVectorsDesc[nEye], mvParams);
-                    SPDLOG_INFO_EVERY_N_SEC(1, "[AFW MV isolation] Corrected private vectors eye={} frame={}; DLSS input preserved",
-                        (int)nEye, render_frame_count);
+
                 }
-            } else {
-                SPDLOG_INFO_EVERY_N_SEC(1, "[AFW MV isolation] Original vectors eye={} frame={} ghosting={} correction={} velocity_pair={}",
-                    (int)nEye, render_frame_count, vr->is_ghosting_fix_enabled(), vr->is_fix_object_motion_vector(),
-                    vr->rawVelocityDesc[nEye].pTexture != nullptr && vr->rawVelocityDesc[nEyeOther].pTexture != nullptr);
             }
         }
         if (vr->is_renderdoc) {
@@ -192,9 +187,13 @@ NVSDK_NGX_Result hk_NVSDK_NGX_D3D12_EvaluateFeature(
     return result;
 }
 
-static SafetyHookInline ResourceBarrier_Hook{};
+static utility::ConcurrentInlineHook ResourceBarrier_Hook{};
 void WINAPI hk_ID3D12GraphicsCommandList_ResourceBarrier(ID3D12GraphicsCommandList* This, UINT NumBarriers, const D3D12_RESOURCE_BARRIER* pBarriers) {
-    ResourceBarrier_Hook.call(This, NumBarriers, pBarriers);
+    // Keep the immutable trampoline alive, but allow independent command lists
+    // to enter the driver concurrently. Installation publishes before enabling.
+    const auto barrier_hook = ResourceBarrier_Hook.acquire();
+    using ResourceBarrierFn = void (WINAPI*)(ID3D12GraphicsCommandList*, UINT, const D3D12_RESOURCE_BARRIER*);
+    barrier_hook->original<ResourceBarrierFn>()(This, NumBarriers, pBarriers);
     const auto& vr = VR::get();
 
     // Only track barriers submitted in RHISubmissionThread
@@ -475,14 +474,14 @@ std::optional<std::string> VR::clean_initialize() try {
     // PureDark 29d34c33: intercept implementations, not a single command-list
     // vtable. Wrappers can expose different vtables for game and plugin lists.
     auto* command_vtable = *reinterpret_cast<uintptr_t**>(cmdList);
-    auto barrier_result = safetyhook::InlineHook::create(
+    auto barrier_error = ResourceBarrier_Hook.install(
         reinterpret_cast<void*>(command_vtable[26]), reinterpret_cast<void*>(hk_ID3D12GraphicsCommandList_ResourceBarrier));
-    if (!barrier_result) {
+    if (barrier_error) {
         d3d12Renderer->EndCommandList(0);
-        spdlog::error("[AFW upstream] ResourceBarrier hook failed: {}", (int)barrier_result.error().type);
+        spdlog::error("[AFW upstream] ResourceBarrier hook failed: {}", *barrier_error);
         return Mod::on_initialize();
     }
-    ResourceBarrier_Hook = std::move(barrier_result.value());
+    spdlog::info("[AFW] ResourceBarrier concurrent forwarding enabled (shared trampoline lifetime)");
     auto clear_result = safetyhook::InlineHook::create(
         reinterpret_cast<void*>(command_vtable[47]), reinterpret_cast<void*>(hk_ID3D12GraphicsCommandList_ClearDepthStencilView));
     if (!clear_result) {
@@ -3406,7 +3405,6 @@ void VR::on_draw_sidebar_entry(std::string_view name) {
             m_fake_stereo_hook->on_draw_ui();
         }
 
-        //ImGui::Combo("Sync Mode", (int*)&get_runtime()->custom_stage, "Early\0Late\0Very Late\0");
         m_sync_mode->draw("Sync Mode");
         ImGui::DragFloat4("Right Bounds", (float*)&m_right_bounds, 0.005f, -2.0f, 2.0f);
         ImGui::DragFloat4("Left Bounds", (float*)&m_left_bounds, 0.005f, -2.0f, 2.0f);

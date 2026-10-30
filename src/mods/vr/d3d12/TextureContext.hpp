@@ -5,11 +5,9 @@
 #include <../../directxtk12-src/Inc/DescriptorHeap.h>
 
 #include "CommandContext.hpp"
-#include "CopyGpuTimer.hpp"
 
 namespace d3d12 {
 struct TextureContext {
-    CopyGpuTimer copy_timer{};
     CommandContext commands{};
     ComPtr<ID3D12Resource> texture{};
     std::unique_ptr<DirectX::DescriptorHeap> rtv_heap{};
@@ -33,7 +31,6 @@ struct TextureContext {
 
     void reset() {
         commands.reset();
-        copy_timer = {};
         rtv_heap.reset();
         srv_heap.reset();
         texture.Reset();

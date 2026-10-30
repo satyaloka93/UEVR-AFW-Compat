@@ -18,7 +18,6 @@
 #include "render/RenderDocCaptureService.hpp"
 
 #include "D3D12Hook.hpp"
-#include "utility/CpuPipelineTiming.hpp"
 
 static D3D12Hook* g_d3d12_hook = nullptr;
 
@@ -571,14 +570,9 @@ HRESULT D3D12Hook::present_internal(IDXGISwapChain3* swap_chain, UINT sync_inter
     }
 
     if (is_the_outer_worlds2_executable()) {
-        static uint64_t s_present_count = 0;
-        static uint64_t s_present1_count = 0;
-        static auto s_last_diag = std::chrono::steady_clock::time_point{};
         static std::unordered_set<uintptr_t> s_seen_swapchains{};
 
-        present1 ? ++s_present1_count : ++s_present_count;
 
-        const auto now = std::chrono::steady_clock::now();
         const auto swapchain_key = (uintptr_t)swap_chain;
         if (s_seen_swapchains.insert(swapchain_key).second) {
             DXGI_SWAP_CHAIN_DESC desc{};
@@ -596,26 +590,6 @@ HRESULT D3D12Hook::present_internal(IDXGISwapChain3* swap_chain, UINT sync_inter
                 (uintptr_t)desc.OutputWindow);
         }
 
-        if (s_last_diag == std::chrono::steady_clock::time_point{} || now - s_last_diag >= std::chrono::seconds(1)) {
-            s_last_diag = now;
-            spdlog::info(
-                "[TOW2 D3D12] Present heartbeat: Present={} Present1={} swapchain={:x} hwnd={:x} phase1={} inside={} device={:x} queue={:x} cq_offset={:x} proton={} framegen={} sync={} flags={:x} original_present={:x}",
-                s_present_count,
-                s_present1_count,
-                swapchain_key,
-                (uintptr_t)swapchain_wnd,
-                d3d12->m_is_phase_1,
-                d3d12->m_inside_present,
-                (uintptr_t)d3d12->m_device,
-                (uintptr_t)d3d12->m_command_queue,
-                d3d12->m_command_queue_offset,
-                d3d12->m_using_proton_swapchain,
-                d3d12->m_using_frame_generation_swapchain,
-                sync_interval,
-                flags,
-                (uintptr_t)present_fn);
-            log_tow2_module_state("present_heartbeat");
-        }
     }
 
     if (d3d12->m_is_phase_1 && WindowFilter::get().is_filtered(swapchain_wnd)) {
@@ -698,7 +672,7 @@ HRESULT D3D12Hook::present_internal(IDXGISwapChain3* swap_chain, UINT sync_inter
             const auto result = present_fn(swap_chain, sync_interval, flags, params);
             --g_present_depth;
 
-            if (result != S_OK) {
+            if (FAILED(result)) {
                 spdlog::error("Present failed: {:x}", result);
             }
 
@@ -709,7 +683,6 @@ HRESULT D3D12Hook::present_internal(IDXGISwapChain3* swap_chain, UINT sync_inter
         return S_OK;
     }
 
-    const auto cpu_begin = std::chrono::steady_clock::now();
     if (d3d12->m_on_present) {
         d3d12->m_on_present(*d3d12);
 
@@ -732,7 +705,6 @@ HRESULT D3D12Hook::present_internal(IDXGISwapChain3* swap_chain, UINT sync_inter
         }
     }
 
-    const auto cpu_pre_done = std::chrono::steady_clock::now();
     ++g_present_depth;
 
     auto result = S_OK;
@@ -740,7 +712,7 @@ HRESULT D3D12Hook::present_internal(IDXGISwapChain3* swap_chain, UINT sync_inter
     if (!d3d12->m_ignore_next_present) {
         result = present_fn(swap_chain, sync_interval, flags, params);
 
-        if (result != S_OK) {
+        if (FAILED(result)) {
             spdlog::error("Present failed: {:x}", result);
         }
     } else {
@@ -749,18 +721,13 @@ HRESULT D3D12Hook::present_internal(IDXGISwapChain3* swap_chain, UINT sync_inter
 
     --g_present_depth;
 
-    const auto cpu_present_done = std::chrono::steady_clock::now();
     if (d3d12->m_on_post_present) {
         d3d12->m_on_post_present(*d3d12);
     }
 
     d3d12->m_inside_present = false;
 
-    if (is_the_outer_worlds2_executable()) {
-        static thread_local uevr::diagnostics::CpuPipelineTiming timing;
-        timing.record("Present(pre_callback/desktop_present_or_skip/post_callback)", cpu_begin, cpu_pre_done,
-            cpu_present_done, std::chrono::steady_clock::now());
-    }
+
 
     return result;
 }

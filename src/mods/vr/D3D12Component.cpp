@@ -116,7 +116,7 @@ vr::EVRCompositorError D3D12Component::on_frame(VR* vr) {
     auto& hook = g_framework->get_d3d12_hook();
 
     hook->set_next_present_interval(0); // disable vsync for vr
-    
+
     // get device
     auto device = hook->get_device();
 
@@ -199,7 +199,7 @@ vr::EVRCompositorError D3D12Component::on_frame(VR* vr) {
 
     if (m_game_tex.texture.Get() == nullptr && backbuffer.Get() == real_backbuffer.Get()) {
         spdlog::info("[VR] Setting up game texture as copy of backbuffer");
-        
+
         ComPtr<ID3D12Resource> backbuffer_copy{};
         D3D12_HEAP_PROPERTIES heap_props{};
         heap_props.Type = D3D12_HEAP_TYPE_DEFAULT;
@@ -822,15 +822,7 @@ vr::EVRCompositorError D3D12Component::on_frame(VR* vr) {
         if (vr->is_ghosting_fix_enabled() && vr->is_fix_object_motion_vector() && vr->is_fix_moving_object_brightness_flickering())
             params.InUEVelocityBuffer = &vr->rawVelocityDesc[nEye];
 
-        const auto evaluate_start = std::chrono::steady_clock::now();
-        if (is_the_outer_worlds2_executable()) {
-            SPDLOG_INFO_EVERY_N_SEC(1, "[TOW2 AFW] EvaluateFrameWarp begin frame={} eye={} mode={}", frame_count, (int)nEye, (int)params.Mode);
-        }
         EvaluateFrameWarp(params);
-        if (is_the_outer_worlds2_executable()) {
-            const auto evaluate_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - evaluate_start).count();
-            SPDLOG_INFO_EVERY_N_SEC(1, "[TOW2 AFW] EvaluateFrameWarp complete frame={} eye={} duration_ms={:.3f}", frame_count, (int)nEye, evaluate_ms);
-        }
     }
 
     if (vr->mDebug3 && vr->is_fix_object_motion_vector() && vr->rawVelocityDesc[nEye].pTexture) {
@@ -849,13 +841,9 @@ vr::EVRCompositorError D3D12Component::on_frame(VR* vr) {
         vr->d3d12Renderer->Blit(cmdList, backbufferDesc[backbuffer_index], vr->rawVelocityDesc[nEye], vp);
     }
 
-    if (is_the_outer_worlds2_executable()) {
-        SPDLOG_INFO_EVERY_N_SEC(1, "[TOW2 AFW] EndCommandList begin frame={} index={}", frame_count, backbuffer_index);
-    }
+
     vr->d3d12Renderer->EndCommandList(backbuffer_index);
-    if (is_the_outer_worlds2_executable()) {
-        SPDLOG_INFO_EVERY_N_SEC(1, "[TOW2 AFW] EndCommandList complete frame={} index={}", frame_count, backbuffer_index);
-    }
+
     }
 
     // #############################
@@ -908,7 +896,7 @@ vr::EVRCompositorError D3D12Component::on_frame(VR* vr) {
                 command_queue,
                 0
             };
-            
+
             vr::VRTextureWithPose_t left_eye{
                 (void*)&left, vr::TextureType_DirectX12, vr::ColorSpace_Auto,
                 submit_pose
@@ -1143,7 +1131,7 @@ vr::EVRCompositorError D3D12Component::on_frame(VR* vr) {
                     quad_layers.push_back(&slate_layer->get());
                 }   
             }
-            
+
             if (m_openxr.ever_acquired((uint32_t)runtimes::OpenXR::SwapchainIndex::FRAMEWORK_UI)) {
                 const auto framework_quad = openxr_overlay.generate_framework_ui_quad();
                 if (framework_quad) {
@@ -1153,13 +1141,7 @@ vr::EVRCompositorError D3D12Component::on_frame(VR* vr) {
 
             auto result = vr->m_openxr->end_frame(quad_layers, scene_depth_tex.Get() != nullptr);
 
-            if (is_the_outer_worlds2_executable()) {
-                SPDLOG_INFO_EVERY_N_SEC(1, "[TOW2 D3D12] OpenXR end_frame result={} submitted={} frame={} shouldRender={}",
-                    vr->m_openxr->get_result_string(result),
-                    result == XR_SUCCESS,
-                    frame_count,
-                    vr->m_openxr->frame_state.shouldRender == XR_TRUE);
-            }
+
 
             if (result == XR_ERROR_LAYER_INVALID) {
                 spdlog::info("[VR] Attempting to correct invalid layer");
@@ -1285,7 +1267,7 @@ void D3D12Component::draw_spectator_view(ID3D12GraphicsCommandList* command_list
     }
 
     auto& backbuffer_ctx_ptr = m_backbuffer_textures[index];
-    
+
     if (backbuffer_ctx_ptr == nullptr) {
         // if this has happened, assume the rest of the textures are also null
         for (auto& tex : m_backbuffer_textures) {
@@ -1333,7 +1315,7 @@ void D3D12Component::draw_spectator_view(ID3D12GraphicsCommandList* command_list
     viewport.Width = (float)desc.Width;
     viewport.Height = (float)desc.Height;
     viewport.MaxDepth = 1.0f;
-    
+
     batch->SetViewport(viewport);
 
     D3D12_RECT scissor_rect{};
@@ -1470,7 +1452,7 @@ void D3D12Component::clear_backbuffer() {
     }
 
     auto& backbuffer_ctx_ptr = m_backbuffer_textures[index];
-    
+
     if (backbuffer_ctx_ptr == nullptr) {
         // if this has happened, assume the rest of the textures are also null
         for (auto& tex : m_backbuffer_textures) {
@@ -1605,7 +1587,7 @@ bool D3D12Component::setup() {
 
     auto vr = VR::get();
     on_reset(vr.get());
-    
+
     m_prev_backbuffer.Reset();
 
     auto& hook = g_framework->get_d3d12_hook();
@@ -1821,7 +1803,6 @@ void D3D12Component::OpenXR::initialize(XrSessionCreateInfo& session_info) {
 
     this->binding.device = device;
     this->binding.queue = command_queue;
-
     spdlog::info("[VR] Searching for xrGetD3D12GraphicsRequirementsKHR...");
     PFN_xrGetD3D12GraphicsRequirementsKHR fn = nullptr;
     xrGetInstanceProcAddr(VR::get()->m_openxr->instance, "xrGetD3D12GraphicsRequirementsKHR", (PFN_xrVoidFunction*)(&fn));
@@ -1842,7 +1823,7 @@ std::optional<std::string> D3D12Component::OpenXR::create_swapchains() {
     spdlog::info("[VR] Creating OpenXR swapchains for D3D12");
 
     this->destroy_swapchains();
-    
+
     auto& hook = g_framework->get_d3d12_hook();
     auto device = hook->get_device();
     auto swapchain = hook->get_swap_chain();
@@ -1860,7 +1841,7 @@ std::optional<std::string> D3D12Component::OpenXR::create_swapchains() {
             has_actual_vr_backbuffer = backbuffer != nullptr;
         }
     }
-    
+
     // Get the existing backbuffer
     // so we can get the format and stuff.
     if (backbuffer == nullptr && FAILED(swapchain->GetBuffer(swapchain->GetCurrentBackBufferIndex(), IID_PPV_ARGS(&backbuffer)))) {
@@ -1915,7 +1896,7 @@ std::optional<std::string> D3D12Component::OpenXR::create_swapchains() {
         }
 
         result = xrEnumerateSwapchainImages(swapchain.handle, image_count, &image_count, (XrSwapchainImageBaseHeader*)&ctx.textures[0]);
-        
+
         if (result != XR_SUCCESS) {
             spdlog::error("[VR] Failed to enumerate swapchain images after texture creation.");
             return "Failed to enumerate swapchain images after texture creation.";
@@ -1937,7 +1918,8 @@ std::optional<std::string> D3D12Component::OpenXR::create_swapchains() {
 
                 uint32_t index{};
                 xrAcquireSwapchainImage(swapchain.handle, &acquire_info, &index);
-                xrWaitSwapchainImage(swapchain.handle, &wait_info);
+                const auto waited = xrWaitSwapchainImage(swapchain.handle, &wait_info);
+                if (waited != XR_SUCCESS) return "Static image wait failed";
 
                 auto& texture_ctx = ctx.texture_contexts[index];
                 texture_ctx->texture = ctx.textures[index].texture;
@@ -2136,7 +2118,7 @@ void D3D12Component::OpenXR::destroy_swapchains() {
     if (this->contexts.empty()) {
         return;
     }
-    
+
     auto& vr = VR::get();
     std::scoped_lock __{vr->m_openxr->swapchain_mtx};
 
@@ -2185,7 +2167,7 @@ void D3D12Component::OpenXR::destroy_swapchains() {
                 spdlog::info("[VR] Swapchain texture {} released.", i);
             }
         }
-        
+
         ctx.textures.clear();
     }
 
@@ -2233,21 +2215,11 @@ void D3D12Component::OpenXR::copy(
     const auto& swapchain = vr->m_openxr->swapchains[swapchain_idx];
     auto& ctx = this->contexts[swapchain_idx];
 
-    const bool measure_native = !vr->is_using_afr();
-    auto& timing = ctx.timing;
-    const auto elapsed_ms = [](auto start) {
-        return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
-    };
-
     XrSwapchainImageAcquireInfo acquire_info{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
 
     uint32_t texture_index{};
-    if (is_the_outer_worlds2_executable()) {
-        SPDLOG_INFO_EVERY_N_SEC(1, "[TOW2 OpenXR Copy] acquire begin swapchain={} frame={}", swapchain_idx, vr->m_render_frame_count);
-    }
-    const auto acquire_start = std::chrono::steady_clock::now();
+
     auto result = xrAcquireSwapchainImage(swapchain.handle, &acquire_info, &texture_index);
-    if (measure_native) timing.acquire_ms += elapsed_ms(acquire_start);
 
     if (result == XR_ERROR_RUNTIME_FAILURE) {
         spdlog::error("[VR] xrAcquireSwapchainImage failed: {}", vr->m_openxr->get_result_string(result));
@@ -2270,20 +2242,14 @@ void D3D12Component::OpenXR::copy(
         XrSwapchainImageWaitInfo wait_info{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
         //wait_info.timeout = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::seconds(1)).count();
         wait_info.timeout = XR_INFINITE_DURATION;
-        const auto wait_start = std::chrono::steady_clock::now();
         result = xrWaitSwapchainImage(swapchain.handle, &wait_info);
-        if (measure_native) timing.wait_ms += elapsed_ms(wait_start);
-        if (is_the_outer_worlds2_executable()) {
-            SPDLOG_INFO_EVERY_N_SEC(1, "[TOW2 OpenXR Copy] wait complete swapchain={} image={} result={} frame={}",
-                swapchain_idx, texture_index, vr->m_openxr->get_result_string(result), vr->m_render_frame_count);
-        }
+
 
         if (result != XR_SUCCESS) {
             spdlog::error("[VR] xrWaitSwapchainImage failed: {}", vr->m_openxr->get_result_string(result));
         } else {
             auto& texture_ctx = ctx.texture_contexts[texture_index];
 
-            const auto context_start = std::chrono::steady_clock::now();
 
             if (is_the_outer_worlds2_executable() && texture_ctx->commands.waiting_for_fence) {
                 texture_ctx->commands.wait(0);
@@ -2304,21 +2270,7 @@ void D3D12Component::OpenXR::copy(
                 texture_ctx->commands.wait(INFINITE);
             }
 
-            if (measure_native) timing.context_ms += elapsed_ms(context_start);
-            // Reuse only after the existing command-context fence retirement.
-            // Each image owns its queries; no shared slot can be overwritten.
-            bool gpu_sample = false;
-            if (measure_native && texture_ctx->commands.ready() &&
-                !texture_ctx->commands.waiting_for_fence && !texture_ctx->commands.has_commands) {
-                if (auto ms = texture_ctx->copy_timer.collect()) {
-                    ++timing.samples;
-                    timing.gpu_ms += *ms;
-                    timing.gpu_max_ms = (std::max)(timing.gpu_max_ms, *ms);
-                }
-                auto& hook = g_framework->get_d3d12_hook();
-                gpu_sample = texture_ctx->copy_timer.begin(hook->get_device(),
-                    hook->get_command_queue(), texture_ctx->commands.cmd_list.Get());
-            }
+
 
             if (pre_commands) {
                 (*pre_commands)(texture_ctx->commands, ctx.textures[texture_index].texture);
@@ -2386,31 +2338,11 @@ void D3D12Component::OpenXR::copy(
                 }
             }
 
-            if (gpu_sample) {
-                texture_ctx->copy_timer.end(texture_ctx->commands.cmd_list.Get());
-                texture_ctx->commands.has_commands = true;
-            }
+
             texture_ctx->commands.execute();
-            if (gpu_sample && texture_ctx->commands.waiting_for_fence) {
-                texture_ctx->copy_timer.submitted(texture_ctx->commands.fence.Get(), texture_ctx->commands.fence_value);
-            }
-            if (measure_native) {
-                ++timing.copies;
-                if (elapsed_ms(timing.since) >= 5000.0) {
-                    uint64_t failures = 0;
-                    for (const auto& image : ctx.texture_contexts) failures += image->copy_timer.failures;
-                    spdlog::info("[OpenXR copy timing] swapchain={} copies={} gpu_samples={} gpu_avg_ms={:.4f} gpu_max_ms={:.4f} acquire_cpu_ms={:.4f} image_wait_cpu_ms={:.4f} context_wait_cpu_ms={:.4f} timer_failures_total={}",
-                        swapchain_idx, timing.copies, timing.samples,
-                        timing.samples ? timing.gpu_ms / timing.samples : -1.0, timing.gpu_max_ms,
-                        timing.acquire_ms / timing.copies, timing.wait_ms / timing.copies,
-                        timing.context_ms / timing.copies, failures);
-                    timing = {};
-                }
-            }
-            if (is_the_outer_worlds2_executable()) {
-                SPDLOG_INFO_EVERY_N_SEC(1, "[TOW2 OpenXR Copy] command execute complete swapchain={} image={} frame={}",
-                    swapchain_idx, texture_index, vr->m_render_frame_count);
-            }
+
+
+
 
             XrSwapchainImageReleaseInfo release_info{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
             auto result = xrReleaseSwapchainImage(swapchain.handle, &release_info);

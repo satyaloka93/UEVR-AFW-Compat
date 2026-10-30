@@ -33,7 +33,25 @@ constexpr std::string_view cvars_data_txt_name = "cvars_data.txt";
 constexpr std::string_view user_script_txt_name = "user_script.txt";
 
 namespace {
+bool is_avowed_cvar_game() {
+    static const bool result = [] {
+        const auto path = utility::get_module_pathw(utility::get_executable());
+        if (!path) return false;
+        auto name = std::filesystem::path(*path).filename().wstring();
+        std::transform(name.begin(), name.end(), name.begin(), ::towlower);
+        return name == L"avowed-win64-shipping.exe";
+    }();
+    return result;
+}
+
+uint32_t validated_set_priority() {
+    // Preserve Avowed's existing SetByConsole priority; the newer TOW2/SHf
+    // priority is not assumed to be portable to its engine branch.
+    return is_avowed_cvar_game() ? 0x08000000 : 0x0E000000;
+}
+
 bool is_validated_cvar_game() {
+    if (is_avowed_cvar_game()) return true;
     static const bool result = []() {
         const auto exe_path = utility::get_module_pathw(utility::get_executable());
         if (!exe_path.has_value()) {
@@ -73,6 +91,9 @@ bool CVarManager::uses_validated_access() { return is_validated_cvar_game(); }
 
 CVarManager::CVarManager() {
     ZoneScopedN(__FUNCTION__);
+    if (is_avowed_cvar_game()) {
+        spdlog::info("[Avowed CVar] register-tail validation candidate 20260927; verified access/readback enabled; setter priority=0x08000000");
+    }
 
     m_displayed_cvars.insert(m_displayed_cvars.end(), s_default_standard_cvars.begin(), s_default_standard_cvars.end());
     m_displayed_cvars.insert(m_displayed_cvars.end(), s_default_data_cvars.begin(), s_default_data_cvars.end());
@@ -998,7 +1019,7 @@ void CVarManager::CVarValidated::freeze() try {
         // UE5.5+ SetByConsole. Old UEVR's 0x08000000 is not console priority
         // on this engine. Never touch flags or render-thread shadow data.
         const auto text = m_type == Type::FLOAT ? std::format(L"{:.9g}", m_frozen_float_value) : std::to_wstring(m_frozen_int_value);
-        m_variable->Set(text.c_str(), is_validated_cvar_game() ? 0x0E000000 : 0x08000000);
+        m_variable->Set(text.c_str(), is_validated_cvar_game() ? validated_set_priority() : 0x08000000);
         update();
     }
     const double actual = m_type == Type::FLOAT ? m_float.load() : m_int.load();
@@ -1153,7 +1174,7 @@ void CVarManager::process_script_line(sdk::UGameEngine* engine) {
                 if (!variable) { spdlog::warn("[CVar script] {} unavailable; skipped", name); return; }
                 const float before = variable->GetFloat();
                 const bool unchanged = cvar_script::action((float)number, before, false, 0) == cvar_script::Action::unchanged;
-                if (!unchanged) variable->Set(utility::widen(value).c_str(), 0x0E000000);
+                if (!unchanged) variable->Set(utility::widen(value).c_str(), validated_set_priority());
                 const float actual = variable->GetFloat();
                 spdlog::warn("[CVar script] {} requested={} before={} readback={} unchanged={} verified={} elapsed_ms={:.3f}",
                     name, value, before, actual, unchanged, actual == (float)number,

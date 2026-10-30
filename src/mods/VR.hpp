@@ -498,6 +498,7 @@ public:
     }
 
 
+
     SynchronizeStage get_synchronize_stage() {
         return (SynchronizeStage) m_sync_mode->value();
     }
