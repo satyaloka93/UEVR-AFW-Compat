@@ -709,6 +709,82 @@ void* UObjectHook::creation_detour(void* rcx, void* rdx, void* r8, void* r9, voi
     return result;
 }
 
+// creation_detour forwards rcx, rdx, r8, r9 and four stack slots. An engine upgrade that
+// adds parameters to a discovered function would silently lose arguments 9+, so measure the
+// highest stack argument the function reads (relative to its entry rsp) before hooking it.
+// Frames come from "push...; sub rsp, N" or "mov rax, rsp; ... lea rbp, [rax - N]"; an
+// undeterminable frame is treated as unsafe. Linear decode until the first int3 padding.
+static std::optional<uint32_t> max_stack_argument_read(uintptr_t fn) {
+    constexpr uint32_t first_stack_argument = 5;
+    std::optional<int64_t> frame{};      // entry rsp - current rsp, once the prologue is done
+    std::optional<int64_t> rbp_delta{};  // rbp - entry rsp, for frame-pointer functions
+    bool rax_is_entry_rsp = false;
+    int64_t pushes = 0;
+    uint32_t highest = 4;
+    uintptr_t ip = fn;
+
+    for (size_t n = 0; n < 0x4000 && ip < fn + 0x10000; ++n) {
+        const auto ix = utility::decode_one((uint8_t*)ip);
+
+        if (!ix) {
+            return std::nullopt;
+        }
+
+        const std::string_view mnemonic{ix->Mnemonic};
+
+        if (mnemonic == "INT3" && ip > fn + 0x40) {
+            break;
+        }
+
+        if (!frame && n < 48) {
+            const auto& op0 = ix->Operands[0];
+            const auto& op1 = ix->Operands[1];
+
+            if (mnemonic == "PUSH") {
+                ++pushes;
+            } else if (mnemonic == "MOV" && ix->OperandsCount >= 2 && op0.Type == ND_OP_REG && op1.Type == ND_OP_REG &&
+                       op0.Info.Register.Reg == NDR_RAX && op1.Info.Register.Reg == NDR_RSP && op0.Size == 8) {
+                rax_is_entry_rsp = true;
+            } else if (mnemonic == "LEA" && rax_is_entry_rsp && op0.Type == ND_OP_REG && op0.Info.Register.Reg == NDR_RBP &&
+                       op1.Type == ND_OP_MEM && op1.Info.Memory.HasBase && op1.Info.Memory.Base == NDR_RAX && !op1.Info.Memory.HasIndex) {
+                rbp_delta = (int64_t)op1.Info.Memory.Disp;
+            } else if (mnemonic == "SUB" && op0.Type == ND_OP_REG && op0.Info.Register.Reg == NDR_RSP && op1.Type == ND_OP_IMM) {
+                frame = (int64_t)op1.Info.Immediate.Imm + pushes * 8;
+            }
+        }
+
+        for (size_t i = 0; i < ix->OperandsCount; ++i) {
+            const auto& op = ix->Operands[i];
+
+            if (op.Type != ND_OP_MEM || !op.Info.Memory.HasBase || op.Info.Memory.HasIndex) {
+                continue;
+            }
+
+            const auto disp = (int64_t)op.Info.Memory.Disp;
+            std::optional<int64_t> from_entry{};
+
+            if (op.Info.Memory.Base == NDR_RSP && frame) {
+                from_entry = disp - *frame;
+            } else if (op.Info.Memory.Base == NDR_RBP && rbp_delta) {
+                from_entry = disp + *rbp_delta;
+            }
+
+            // Entry rsp + 0x28 is the fifth argument (return address + 32-byte home area).
+            if (from_entry && *from_entry >= 0x28 && ((*from_entry - 0x28) % 8) == 0) {
+                highest = std::max<uint32_t>(highest, first_stack_argument + (uint32_t)((*from_entry - 0x28) / 8));
+            }
+        }
+
+        ip += ix->Length;
+    }
+
+    if (!frame && !rbp_delta) {
+        return std::nullopt;
+    }
+
+    return highest;
+}
+
 // Every UObject slot assignment raises this check, both in the standalone
 // FUObjectArray::AllocateUObjectIndex and in copies inlined into StaticAllocateObject /
 // StaticConstructObject_Internal. The format string is referenced directly (TOW2) or
@@ -764,6 +840,14 @@ bool UObjectHook::hook_creation_functions() {
     }
 
     for (const auto root : roots) {
+        const auto args = max_stack_argument_read(root);
+
+        if (!args || *args > 8) {
+            SPDLOG_WARN("[UObjectHook] Not hooking object creation function at RVA {:x}: reads {} arguments (detour forwards 8)",
+                root - module_begin, args ? std::to_string(*args) : std::string{"an unknown number of"});
+            continue;
+        }
+
         auto& slot = m_creation_hooks[m_creation_hook_count];
         slot = safetyhook::create_inline((void*)root, (void*)detours[m_creation_hook_count]);
 
@@ -772,7 +856,7 @@ bool UObjectHook::hook_creation_functions() {
             continue;
         }
 
-        SPDLOG_INFO("[UObjectHook] Hooked object creation function at RVA {:x}", root - module_begin);
+        SPDLOG_INFO("[UObjectHook] Hooked object creation function at RVA {:x} ({} args)", root - module_begin, *args);
         ++m_creation_hook_count;
     }
 

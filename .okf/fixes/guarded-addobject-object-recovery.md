@@ -85,6 +85,12 @@ check, directly referenced (TOW2) or via the static UE_LOG record that points to
 (Avowed), walks unwind info to each enclosing function and hooks it with one 8-argument
 detour that adopts the return value and `rdx` when they are validated, untracked objects.
 The heuristic AddObject hook is used only if discovery fails.
+Before hooking, each root's highest stack argument read is measured from its prologue
+(`push`/`sub rsp` or `mov rax, rsp` + `lea rbp, [rax - N]`); roots reading more than 8
+arguments, or with an undeterminable frame, are skipped with a warning, so an engine
+upgrade that adds parameters degrades to the fallback instead of corrupting arguments.
+Log: `Hooked object creation function at RVA ... (N args)`. No addresses are stored;
+discovery reruns every launch, so ordinary game patches are handled.
 
 | Function | TOW2 | Avowed | Object |
 |---|---|---|---|

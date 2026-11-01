@@ -1,5 +1,9 @@
 # Update Log
 
+## 2026-11-02
+
+* **Maintenance**: UObjectHook now measures each discovered creation function's stack-argument use and skips any reading more than 8, closing the engine-upgrade risk for [object recovery](fixes/guarded-addobject-object-recovery.md).
+
 ## 2026-11-01
 
 * **Maintenance**: Documented the Performance CVars [scalability groups](fixes/cvar-script-controls-shf.md) and their any-UE-game applicability (registry lookup by name) with setter-priority and re-apply caveats.

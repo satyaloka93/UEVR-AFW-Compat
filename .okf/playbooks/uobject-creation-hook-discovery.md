@@ -66,7 +66,7 @@ All steps are static: only the exe on disk is read; nothing is executed.
    and four stack slots. Find the highest stack argument read relative to the entry rsp
    (frame = `sub rsp` + pushes; frame-pointer functions use `lea rbp, [rax - N]` after
    `mov rax, rsp`). Measured: StaticAllocateObject 8, AllocateUObjectIndex 5,
-   StaticConstructObject_Internal 4 (Avowed).
+   StaticConstructObject_Internal 4 (Avowed). UObjectHook repeats this measurement at startup and skips any root reading more than 8 arguments (or with an unknown frame).
 
 # How UEVR uses it
 
