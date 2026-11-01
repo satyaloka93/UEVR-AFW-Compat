@@ -4,6 +4,7 @@
 #include <shared_mutex>
 #include <unordered_set>
 #include <memory>
+#include <array>
 #include <deque>
 #include <future>
 
@@ -284,6 +285,18 @@ private:
     std::deque<std::unique_ptr<MetaObject>> m_reusable_meta_objects{};
 
     SafetyHookInline m_add_object_hook{};
+
+    // Avowed/TOW2: UESDK's AddObject heuristic lands on an unrelated helper (a hash-map
+    // FindOrAdd / array shrink) because AddObject is inlined into StaticAllocateObject.
+    // Hook the functions that really carry the new object instead: StaticAllocateObject
+    // and StaticConstructObject_Internal (return value) and AllocateUObjectIndex (rdx).
+    static constexpr size_t MAX_CREATION_HOOKS = 4;
+    std::array<SafetyHookInline, MAX_CREATION_HOOKS> m_creation_hooks{};
+    size_t m_creation_hook_count{0};
+    bool hook_creation_functions();
+    void on_creation_candidate(sdk::UObjectBase* object);
+    template <size_t I>
+    static void* creation_detour(void* rcx, void* rdx, void* r8, void* r9, void* stack1, void* stack2, void* stack3, void* stack4);
     SafetyHookInline m_destructor_hook{};
 
     std::chrono::steady_clock::time_point m_last_sort_time{};

@@ -1,5 +1,9 @@
 # Update Log
 
+## 2026-11-01
+
+* **Fix**: Root-caused Avowed/TOW2 object tracking: UESDK's AddObject heuristic hooked a hash-map FindOrAdd (TOW2) and an array shrink helper (Avowed). UObjectHook now hooks StaticAllocateObject / StaticConstructObject_Internal / AllocateUObjectIndex found via the engine's slot-check string; recovery scan adoptions fell from ~475k to 477 (Avowed) and 0 (TOW2). See [object recovery](fixes/guarded-addobject-object-recovery.md).
+
 ## 2026-10-30
 
 * **Maintenance**: Avowed/TOW2 letmein Lua profiles now find weapons, attachments and hands: guarded AddObject skipped nearly all runtime objects, so UObjectHook adopts them from FUObjectArray with slot-index liveness and a budgeted scan; fixed a VEH race crash. Committed `d50573ae`, then `197f2997` (validated Avowed CVars, concurrent ResourceBarrier hook, hot-path diagnostics removed; UESDK `faf202d`). See [object recovery](fixes/guarded-addobject-object-recovery.md).

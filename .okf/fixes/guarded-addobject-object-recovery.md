@@ -2,7 +2,7 @@
 type: fix
 title: Guarded AddObject object recovery (Avowed/TOW2)
 description: The guarded AddObject hook skipped nearly all runtime objects on Avowed/TOW2, breaking Lua attachment profiles; recover them from FUObjectArray with slot-index liveness and a budgeted scan.
-timestamp: 2026-10-30
+timestamp: 2026-11-01
 tags: [avowed, tow2, uobjecthook, lua, attachments, performance, crash]
 ---
 
@@ -65,8 +65,37 @@ pipeline raised never-shown frames from 3% to 16%. Remaining Avowed limit was
 GPU (Native Stereo, ~10.6 ms of 11.1 ms); lowering view distance/shadows gave
 42 fps game / 84.6 presented / 4.2% never shown.
 
+# Root cause and creation hooks (2026-11-01)
+
+Static analysis of the shipped executables (capstone/pefile; REA's Rizin backend was
+unavailable) showed UESDK's `get_add_object` heuristic hooks the wrong function on both
+games, because `AddObject` is inlined into `StaticAllocateObject`:
+
+- TOW2 hooked RVA `0x102F414`: a hash-map FindOrAdd (map, hash, key). Its only caller is
+  `StaticAllocateObject` hashing the new object's name; the object is in the caller's `rdi`.
+- Avowed hooked RVA `0x7B0D8B0`: a generic array shrink helper with 252 call sites.
+
+The guard therefore rarely saw an object, and every call cost time.
+
+Fix: on guarded games UObjectHook finds the engine's
+`"Attempting to add %s at index %d but another object (0x%016llx) exists at that index!"`
+check, directly referenced (TOW2) or via the static UE_LOG record that points to it
+(Avowed), walks unwind info to each enclosing function and hooks it with one 8-argument
+detour that adopts the return value and `rdx` when they are validated, untracked objects.
+The heuristic AddObject hook is used only if discovery fails.
+
+| Function | TOW2 | Avowed | Object |
+|---|---|---|---|
+| StaticAllocateObject (8 args) | `0x102D9A0` | `0x7A604E0` | return |
+| StaticConstructObject_Internal (inlined allocator) | - | `0x7B04350` | return |
+| FUObjectArray::AllocateUObjectIndex (5 args) | `0x204AF44` | `0x814D2F0` | `rdx` |
+
+Measured: Avowed 6 min, recovery scan adopted 477 objects (was ~475k), no backlog,
+44.5 game / 88.9 presented fps, 0.6% never shown. TOW2: scan adopted 0 objects,
+attachments and hands immediate. The recovery scan and slot-index liveness stay as a
+safety net. Debug UI shows `Creation hooks: N`.
+
 # Open
 
-The real fix is identifying Avowed's correct AddObject argument and destructor;
-the scan would then be unnecessary. Debug UI shows `Adopted (on demand / scan)`
-and `Stale entries pruned` counters.
+Avowed's destructor hook is still the "wrong one, falling back to branch start"
+heuristic; slot-index liveness covers missed destructions.

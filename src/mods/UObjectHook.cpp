@@ -3,6 +3,7 @@
 
 #include <utility/Logging.hpp>
 #include <utility/Module.hpp>
+#include <utility/Scan.hpp>
 #include <utility/String.hpp>
 #include <utility/ScopeGuard.hpp>
 
@@ -256,13 +257,6 @@ void UObjectHook::hook() {
         return;
     }
 
-    auto add_object_fn = sdk::UObjectBase::get_add_object();
-
-    if (!add_object_fn) {
-        SPDLOG_ERROR("[UObjectHook] Failed to find UObjectBase::AddObject, cannot hook UObjectBase");
-        return;
-    }
-
     m_destructor_hook = safetyhook::create_inline((void**)destructor_fn.value(), &destructor);
 
     if (!m_destructor_hook) {
@@ -270,11 +264,25 @@ void UObjectHook::hook() {
         return;
     }
 
-    m_add_object_hook = safetyhook::create_inline((void**)add_object_fn.value(), &add_object);
+    // On the guarded games the heuristic AddObject is not object creation at all; hooking
+    // it costs time on every call and only rarely sees an object. Prefer the real creation
+    // functions and fall back to the heuristic only when they cannot be found.
+    const bool creation_hooked = is_guarded_uobjecthook_game() && hook_creation_functions();
 
-    if (!m_add_object_hook) {
-        SPDLOG_ERROR("[UObjectHook] Failed to hook UObjectBase::AddObject, cannot hook UObjectBase");
-        return;
+    if (!creation_hooked) {
+        auto add_object_fn = sdk::UObjectBase::get_add_object();
+
+        if (!add_object_fn) {
+            SPDLOG_ERROR("[UObjectHook] Failed to find UObjectBase::AddObject, cannot hook UObjectBase");
+            return;
+        }
+
+        m_add_object_hook = safetyhook::create_inline((void**)add_object_fn.value(), &add_object);
+
+        if (!m_add_object_hook) {
+            SPDLOG_ERROR("[UObjectHook] Failed to hook UObjectBase::AddObject, cannot hook UObjectBase");
+            return;
+        }
     }
 
     SPDLOG_INFO("[UObjectHook] Hooked UObjectBase");
@@ -671,6 +679,104 @@ bool UObjectHook::try_adopt_untracked_object(sdk::UObjectBase* object) {
     ++m_debug.adopted_on_demand;
     SPDLOG_INFO_EVERY_N_SEC(2, "[UObjectHook] Adopted FUObjectArray-backed object missed by guarded AddObject: {:x}", (uintptr_t)object);
     return true;
+}
+
+void UObjectHook::on_creation_candidate(sdk::UObjectBase* object) {
+    if (object == nullptr || exists(object)) {
+        return;
+    }
+
+    if (!is_validated_array_backed_uobject(sdk::FUObjectArray::get(), object, this)) {
+        return;
+    }
+
+    ++m_debug.constructor_calls;
+    add_new_object(object);
+}
+
+template <size_t I>
+void* UObjectHook::creation_detour(void* rcx, void* rdx, void* r8, void* r9, void* stack1, void* stack2, void* stack3, void* stack4) {
+    auto& hook = UObjectHook::get();
+    auto result = hook->m_creation_hooks[I].unsafe_call<void*>(rcx, rdx, r8, r9, stack1, stack2, stack3, stack4);
+
+    // Allocate/construct return the object; AllocateUObjectIndex takes it in rdx and
+    // returns nothing meaningful. Both are validated (exact FUObjectArray slot and an
+    // array-backed class chain); an already-tracked candidate such as the Outer in rdx
+    // is skipped, so trying both needs no per-function role.
+    hook->on_creation_candidate((sdk::UObjectBase*)result);
+    hook->on_creation_candidate((sdk::UObjectBase*)rdx);
+
+    return result;
+}
+
+// Every UObject slot assignment raises this check, both in the standalone
+// FUObjectArray::AllocateUObjectIndex and in copies inlined into StaticAllocateObject /
+// StaticConstructObject_Internal. The format string is referenced directly (TOW2) or
+// through a static log record holding its address (Avowed's UE_LOG records).
+bool UObjectHook::hook_creation_functions() {
+    const auto module = utility::get_executable();
+    const auto module_size = utility::get_module_size(module).value_or(0);
+
+    if (module == nullptr || module_size == 0) {
+        return false;
+    }
+
+    const auto module_begin = (uintptr_t)module;
+    const auto module_end = module_begin + module_size;
+    const auto needle = utility::scan_string(module, std::wstring{L"exists at that index!"});
+
+    if (!needle) {
+        SPDLOG_WARN("[UObjectHook] Object slot check string not found; using heuristic AddObject");
+        return false;
+    }
+
+    auto str = *needle;
+    for (size_t i = 0; i < 512 && str > module_begin + sizeof(wchar_t) && *(wchar_t*)(str - sizeof(wchar_t)) != 0; ++i) {
+        str -= sizeof(wchar_t);
+    }
+
+    auto refs = utility::scan_displacement_references(module, str);
+
+    for (auto record = utility::scan_ptr(module, str); record.has_value();) {
+        const auto record_refs = utility::scan_displacement_references(module, *record);
+        refs.insert(refs.end(), record_refs.begin(), record_refs.end());
+
+        const auto next = *record + sizeof(void*);
+        record = next < module_end ? utility::scan_ptr(next, module_end - next, str) : std::nullopt;
+    }
+
+    std::vector<uintptr_t> roots{};
+
+    for (const auto ref : refs) {
+        if (const auto root = utility::find_function_start_unwind(ref); root && std::find(roots.begin(), roots.end(), *root) == roots.end()) {
+            roots.push_back(*root);
+        }
+    }
+
+    using Detour = void* (*)(void*, void*, void*, void*, void*, void*, void*, void*);
+    static constexpr std::array<Detour, MAX_CREATION_HOOKS> detours{
+        &creation_detour<0>, &creation_detour<1>, &creation_detour<2>, &creation_detour<3>
+    };
+
+    if (roots.empty() || roots.size() > MAX_CREATION_HOOKS) {
+        SPDLOG_WARN("[UObjectHook] Unexpected object creation function count {} (refs {}); using heuristic AddObject", roots.size(), refs.size());
+        return false;
+    }
+
+    for (const auto root : roots) {
+        auto& slot = m_creation_hooks[m_creation_hook_count];
+        slot = safetyhook::create_inline((void*)root, (void*)detours[m_creation_hook_count]);
+
+        if (!slot) {
+            SPDLOG_ERROR("[UObjectHook] Failed to hook object creation function at RVA {:x}", root - module_begin);
+            continue;
+        }
+
+        SPDLOG_INFO("[UObjectHook] Hooked object creation function at RVA {:x}", root - module_begin);
+        ++m_creation_hook_count;
+    }
+
+    return m_creation_hook_count > 0;
 }
 
 // Guarded AddObject drops calls it cannot validate, which leaves spawned weapons,
@@ -2579,6 +2685,7 @@ void UObjectHook::draw_developer() {
     if (ImGui::TreeNode("Debug Stats")) {
         // uint64_t
         ImGui::Text("Constructor calls: %llu", m_debug.constructor_calls);
+        ImGui::Text("Creation hooks: %llu", (unsigned long long)m_creation_hook_count);
         ImGui::Text("Adopted (on demand / scan): %llu / %llu", m_debug.adopted_on_demand, m_debug.adopted_by_scan);
         ImGui::Text("Stale entries pruned: %llu", m_stale_pruned);
         ImGui::Text("Destructor calls: %llu", m_debug.destructor_calls);
