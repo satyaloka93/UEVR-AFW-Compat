@@ -91,6 +91,9 @@ arguments, or with an undeterminable frame, are skipped with a warning, so an en
 upgrade that adds parameters degrades to the fallback instead of corrupting arguments.
 Log: `Hooked object creation function at RVA ... (N args)`. No addresses are stored;
 discovery reruns every launch, so ordinary game patches are handled.
+Confirmed in game 2026-11-02: TOW2 `102d9a0 (8 args)`, `204af44 (5 args)`; Avowed
+`7a604e0 (8)`, `7b04350 (4)`, `814d2f0 (5)`; no skips, no Lua exceptions, TOW2 0 and
+Avowed 726 scan adoptions with no backlog.
 
 | Function | TOW2 | Avowed | Object |
 |---|---|---|---|

@@ -2,7 +2,7 @@
 
 ## 2026-11-02
 
-* **Maintenance**: UObjectHook now measures each discovered creation function's stack-argument use and skips any reading more than 8, closing the engine-upgrade risk for [object recovery](fixes/guarded-addobject-object-recovery.md).
+* **Maintenance**: UObjectHook now measures each discovered creation function's stack-argument use and skips any reading more than 8, closing the engine-upgrade risk for [object recovery](fixes/guarded-addobject-object-recovery.md). Confirmed in TOW2 and Avowed (8/5 and 8/4/5 args, all hooked).
 
 ## 2026-11-01
 
