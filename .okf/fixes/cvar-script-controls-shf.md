@@ -2,7 +2,7 @@
 type: fix
 title: Cross-game user script controls and SHf validated CVars
 description: Explicit script bypass/application across games, bounded numeric script processing and readback-checked SHf stereo CVar candidate.
-timestamp: 2026-09-20
+timestamp: 2026-11-01
 tags: [cvar, silent-hill-f, tow2, performance, diagnostics]
 ---
 
@@ -64,6 +64,32 @@ Previous files have `.pre-native-openxr-20260920-181547.bak` suffixes;
 evidence is in `diagnostics/native-openxr-20260920-181547`. Runtime presence,
 interaction and effect still require game validation. This extension does not
 add the separately discussed cross-game performance timing or timed A/B runner.
+
+## Scalability groups (2026-11-01, live-verified on TOW2)
+
+A "Scalability groups" section now precedes the catalog: `sg.ShadingQuality`,
+`sg.GlobalIlluminationQuality`, `sg.ReflectionQuality`, `sg.EffectsQuality`,
+`sg.LandscapeQuality` (0 Low .. 4 Cinematic), `r.RefractionQuality` and
+`fx.Niagara.QualityLevel`. Groups are applied first because setting an `sg.*`
+group re-applies its `r.*` members; the finer entries below then win.
+`sg.ShadowQuality` is intentionally absent: re-applying it can re-enable virtual
+shadow maps that stereo profiles keep off. Motivation: TOW2's menu does not
+expose shading (its settings file had Epic). Live TOW2 result: every write
+`verified=true`; Shading 3/GI 3 32 fps vs Shading 1/GI 1 42 fps (see
+[TOW2 baseline](../games/outer-worlds-2.md)).
+
+**Applicability to any UE game.** Performance entries, including these, are
+registered and polled in every game through the validated registry snapshot,
+looked up by name; no game allowlist is needed for discovery. Caveats:
+
+- Absent groups (e.g. `sg.LandscapeQuality` before UE 5.4, Niagara-free games)
+  are unavailable, not guessed; failed registry discovery disables all entries.
+- Only TOW2/Avowed/SHf use the tuned setter priority (`validated_set_priority`).
+  Other games write with legacy `0x08000000`; UE 5.5+ may reject that, which the
+  readback check reports as `setter/readback mismatch; disabled` (fail-closed).
+  Add the game to the validated set if this appears.
+- Games can re-apply their own scalability on menu changes or level loads; the
+  value is re-written only when a change is detected.
 
 Controls informed by Epic's [Lumen performance guide](https://dev.epicgames.com/documentation/unreal-engine/lumen-performance-guide-for-unreal-engine)
 and [fog/shadow performance guidance](https://dev.epicgames.com/documentation/unreal-engine/in-camera-vfx-best-practices-in-unreal-engine);
