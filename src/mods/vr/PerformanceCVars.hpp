@@ -13,6 +13,17 @@ struct Entry {
     const char* help;
 };
 inline constexpr Entry entries[]{
+    // Scalability groups come first: setting an sg.* group re-applies its r.* members, so the
+    // finer entries below are applied afterwards and win. sg.ShadowQuality is deliberately
+    // absent: re-applying the shadow group can re-enable virtual shadow maps that stereo
+    // profiles keep off. 0 Low, 1 Medium, 2 High, 3 Epic, 4 Cinematic.
+    {L"sg.ShadingQuality", "Scalability groups", "Shading quality", Kind::integer, 0, 4, "Material/shading complexity (e.g. subsurface, anisotropy). Some games do not expose it in their menu."},
+    {L"sg.GlobalIlluminationQuality", "Scalability groups", "Global illumination quality", Kind::integer, 0, 4, "Lumen GI quality group; re-applies Lumen settings, so adjust the Lumen entries below afterwards."},
+    {L"sg.ReflectionQuality", "Scalability groups", "Reflection quality", Kind::integer, 0, 4, "Lumen/SSR reflection quality group."},
+    {L"sg.EffectsQuality", "Scalability groups", "Effects quality", Kind::integer, 0, 4, "Particles, translucency and related effects."},
+    {L"sg.LandscapeQuality", "Scalability groups", "Landscape quality", Kind::integer, 0, 4, "Terrain LOD/quality group (UE 5.4+); no effect where the engine lacks it."},
+    {L"r.RefractionQuality", "Scalability groups", "Refraction quality", Kind::integer, 0, 3, "0 removes refraction/heat-haze distortion from effects and glass."},
+    {L"fx.Niagara.QualityLevel", "Scalability groups", "Niagara effects quality", Kind::integer, 0, 4, "Lower levels select cheaper Niagara emitter variants where the game authors them."},
     {L"r.Lumen.Reflections.Allow", "Lumen / reflections", "Lumen reflections", Kind::toggle, 0, 1, "Off removes Lumen reflections; the game's fallback may differ."},
     {L"r.Lumen.DiffuseIndirect.Allow", "Lumen / reflections", "Lumen global illumination", Kind::toggle, 0, 1, "Off can substantially change scene lighting. No universal performance gain is guaranteed."},
     {L"r.Lumen.ScreenProbeGather.DownsampleFactor", "Lumen / reflections", "GI probe spacing", Kind::integer, 4, 64, "Higher values reduce probe density and lighting detail."},

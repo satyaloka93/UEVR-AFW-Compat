@@ -226,6 +226,63 @@ and required config fragment are in profile commit `69d3a7b0`. See
 [Fixed UEVR framework menu with a controller-ray mouse](../playbooks/framework-menu-controller-pointer.md)
 for the reusable configuration, Lua lifecycle and validation checklist.
 
+# Performance baseline with letmein profile and OFXR (2026-11-01)
+
+User-reported best feel so far: letmein-vr TOW2 profile (2026-11-01 import), UEVR
+`afw-beta4-game-compat` with [real object creation hooks](../fixes/guarded-addobject-object-recovery.md)
+(2 hooks, 0 recovery-scan adoptions), OFXR V557 2X. Session 18:46:28-18:52:08.
+
+**UEVR / profile:** `VR_RenderingMethod=0` Native Stereo, `VR_NativeStereoFix=false`,
+`OpenXR_ResolutionScale=1.0`. Validated CVars (all `verified=true`):
+
+| Setting | Value |
+|---|---|
+| `sg.ShadingQuality` | 1 (game menu does not expose shading; file had 3/Epic) |
+| `sg.GlobalIlluminationQuality` | 1 |
+| `sg.ReflectionQuality` | 0 |
+| `r.Shadow.Virtual.Enable` | 0 (stereo requirement) |
+| `r.TranslucentLightingVolume` | 0 |
+| `r.AmbientOcclusionLevels`, `r.DefaultFeature.AmbientOcclusion` | 0 |
+| `r.LightCulling.Quality` | 0 |
+| `r.DepthOfFieldQuality`, `r.MotionBlurQuality`, `r.SceneColorFringeQuality` | 0 |
+| `r.Upscale.Quality` / `r.Upscale.Softness` | 1 / 0 |
+| `r.SubsurfaceScattering`, `r.TemporalAA.Upsampling`, `r.VolumetricCloud` | 1 |
+| `r.Tonemapper.Sharpen` / `r.TonemapperGamma` | 1.094 / 1.813 |
+
+The `sg.*` entries come from the new Performance CVars "Scalability groups" section;
+`sg.ShadowQuality` is deliberately absent (re-applying it can re-enable VSM).
+
+**Game settings** (`GameUserSettings.ini`): DLSS Ultra Performance, `Resolution3D=66`,
+3200x2000 window, Reflex on, `VisualMode=Beauty`, Effects 1, PostProcess 1, View
+distance 1, Textures 2, Foliage 2, Shadows 2, AA 2, Landscape 3, hardware RT off
+(`bHardwareRayTracedShadows=True` stored but `bHardwareRayTracing=False`).
+
+**OFXR:** NVIDIA medium, 50% flow, independent eye queues on, HUD panel FG off,
+**Prefer FPS over latency (`deep_pipeline=1`) ON** (flight-log `700 a=2 b=1`, `951 c=1`).
+No swapchain/end-frame errors in TOW2 (24,896 `app_end_frame` results 0), unlike the
+Cyberpunk swapchain issue that keeps it off there.
+
+**Measured (flight log, settings changed live in-session; scenes not identical):**
+
+| Period | Game fps | Presented | Never shown | GPU p50/p90 ms |
+|---|---|---|---|---|
+| Start: Shading 3, GI 2, Refl 1 | 39.6 | 88.8 | 0.5% | 9.3 / 11.6 |
+| Shading 1, GI 1 | 42.0 | 89.5 | 0.1% | 9.4 / 11.8 |
+| Shading 0, GI 2 | 38.2 | 89.8 | 0.1% | 8.7 / 11.5 |
+| Shading 3, GI 3 | 32.0 | 89.8 | 0.0% | 8.7 / 11.4 |
+| **Final: Shading 1, GI 1, Refl 0** (76 s) | **37.6** | **89.4** | **0.3%** | **8.7 / 11.5** |
+
+Interpretation: lowering the scalability groups improved game performance in play (user
+observation, supported by the data: Shading 3/GI 3 ran 32.0 fps, Shading 1/GI 1 42.0 fps,
+i.e. ~7 ms per frame; Shading 1/GI 1 vs the Shading 3/GI 2 start was +2.4 fps). Exact
+per-step gains are approximate because settings were changed live while the scene varied.
+Separately, the deep pipeline kept presentation at ~89 FPS with near-zero drops at 32-42
+game fps by holding/repeating frames (553 `presenter_transition 400` + 3,176 `401` of
+29,827 presented, ~12.5%); a shallow pipeline lost 18-28% of frames at the same ~40 game
+fps on 17:52/18:26. Both contributed. Earlier shallow-pipeline analysis: heavy areas were a
+steady ~2 ms GPU shortfall (frame interval ~24 vs 22.2 ms), not particle hitches; Effects
+Low alone did not help, while Shading/GI did.
+
 # Profile and visual requirements
 
 The reflected CVar path is unsafe. `userscriptex.dll` remains reversibly
