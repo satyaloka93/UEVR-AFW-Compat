@@ -25,6 +25,7 @@ the fixes that produced them, and the playbooks for analysing new problems.
 
 * [Stable 6DoF profile creation](playbooks/basic-6dof-setup.md) — native attachment, dynamic enrollment, Lua/IK selection and cross-game lifetime validation.
 * [Adding PSVR2 haptics to a new game](playbooks/psvr2-haptics-integration.md) — reuse the bridge/relay/protocol; write a game Lua producer that classifies weapons, detects fire (incl. hold-to-charge), and delivers felt rhythm effects; tune with identity logging and an in-game editor.
+* [UObject creation hook discovery](playbooks/uobject-creation-hook-discovery.md) — static method and tool to find the real object-creation hooks when UEVR's AddObject heuristic misses.
 * [Staged fix methodology](playbooks/staged-fix-methodology.md) — the core loop.
 * [Log-signature triage](playbooks/log-signature-triage.md) — symptom → fix table.
 * [Crash dump analysis](playbooks/crash-dump-analysis.md) — minidump symbolization.

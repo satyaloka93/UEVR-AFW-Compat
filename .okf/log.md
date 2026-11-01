@@ -2,6 +2,7 @@
 
 ## 2026-11-01
 
+* **Documentation**: Added the [UObject creation hook discovery](playbooks/uobject-creation-hook-discovery.md) playbook and `tools/uobject-creation-re/find_creation_functions.py`, which reproduces the Avowed/TOW2 analysis offline (string anchor, UE_LOG records, unwind roots, argument limits).
 * **Fix**: Root-caused Avowed/TOW2 object tracking: UESDK's AddObject heuristic hooked a hash-map FindOrAdd (TOW2) and an array shrink helper (Avowed). UObjectHook now hooks StaticAllocateObject / StaticConstructObject_Internal / AllocateUObjectIndex found via the engine's slot-check string; recovery scan adoptions fell from ~475k to 477 (Avowed) and 0 (TOW2). See [object recovery](fixes/guarded-addobject-object-recovery.md).
 
 ## 2026-10-30

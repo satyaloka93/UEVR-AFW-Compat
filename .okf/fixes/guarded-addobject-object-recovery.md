@@ -77,6 +77,8 @@ games, because `AddObject` is inlined into `StaticAllocateObject`:
 
 The guard therefore rarely saw an object, and every call cost time.
 
+Method and reusable tool: [creation hook discovery playbook](../playbooks/uobject-creation-hook-discovery.md).
+
 Fix: on guarded games UObjectHook finds the engine's
 `"Attempting to add %s at index %d but another object (0x%016llx) exists at that index!"`
 check, directly referenced (TOW2) or via the static UE_LOG record that points to it
