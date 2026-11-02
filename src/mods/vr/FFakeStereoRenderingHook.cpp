@@ -704,6 +704,8 @@ void* FFakeStereoRenderingHook::engine_tick_hook(sdk::UGameEngine* engine, float
     // needs a D3D device + swapchain that we never installed, and
     // enable_engine_thread is a VR-only optimization. The mod fan-out below
     // still runs, so plugins still get on_pre_engine_tick callbacks.
+    g_framework->note_engine_tick();
+
     if (!uevr::is_dumper_mode()) {
         g_framework->enable_engine_thread();
         g_framework->run_imgui_frame(false);

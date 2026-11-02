@@ -76,6 +76,18 @@ private:
 
 private:
     void hook_monitor();
+
+    // Any-game stall watchdog (D3D monitor thread): dumps every thread when Presents or
+    // engine ticks stop for 20 s (a hang a crash handler cannot capture).
+public:
+    void note_engine_tick() { m_engine_tick_heartbeat_ms.store(steady_ms(), std::memory_order_relaxed); }
+private:
+    void check_hang_watchdog();
+    static int64_t steady_ms() {
+        return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+    }
+    std::atomic<int64_t> m_present_heartbeat_ms{0};
+    std::atomic<int64_t> m_engine_tick_heartbeat_ms{0};
     void command_thread();
 
 public:

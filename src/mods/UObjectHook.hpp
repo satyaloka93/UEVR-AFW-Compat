@@ -293,6 +293,17 @@ private:
     static constexpr size_t MAX_CREATION_HOOKS = 4;
     std::array<SafetyHookInline, MAX_CREATION_HOOKS> m_creation_hooks{};
     size_t m_creation_hook_count{0};
+
+    // Auto mode on non-guarded games: sample whether the heuristic AddObject hook yields
+    // validated new objects; if almost none do, switch to the creation hooks.
+    static constexpr uint32_t HEURISTIC_SAMPLE_CALLS = 512;
+    std::atomic<bool> m_heuristic_sampling{false};
+    std::atomic<bool> m_add_object_passthrough{false};
+    std::atomic<uint32_t> m_heuristic_samples{0};
+    std::atomic<uint32_t> m_heuristic_valid{0};
+    std::atomic<bool> m_creation_hooks_auto_switched{false};
+    bool validator_trusted();
+    void switch_to_creation_hooks();
     bool hook_creation_functions();
     void on_creation_candidate(sdk::UObjectBase* object);
     template <size_t I>
@@ -527,6 +538,9 @@ private:
     ModToggle::Ptr m_enabled_at_startup{ModToggle::create(generate_name("EnabledAtStartup"), false)};
     ModToggle::Ptr m_attach_lerp_enabled{ModToggle::create(generate_name("AttachLerpEnabled"), true)};
     ModSlider::Ptr m_attach_lerp_speed{ModSlider::create(generate_name("AttachLerpSpeed"), 0.01f, 30.0f, 15.0f)};
+    // Auto: creation hooks on Avowed/TOW2, and on other games once the heuristic AddObject
+    // proves wrong. On: always try creation hooks first. Off: heuristic AddObject only.
+    ModCombo::Ptr m_creation_hooks_mode{ModCombo::create(generate_name("CreationHooks"), {"Auto", "On", "Off"}, 0)};
 
     ModKey::Ptr m_keybind_toggle_uobject_hook{ModKey::create(generate_name("ToggleUObjectHookKey"))};
     bool m_uobject_hook_disabled{false};
@@ -568,6 +582,7 @@ public:
             *m_enabled_at_startup,
             *m_attach_lerp_enabled,
             *m_attach_lerp_speed,
+            *m_creation_hooks_mode,
             *m_keybind_toggle_uobject_hook
         };
     }

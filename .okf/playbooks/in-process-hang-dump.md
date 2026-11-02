@@ -8,7 +8,7 @@ tags:
 - minidump
 - windows
 - tow2
-timestamp: '2026-07-20T18:54:40+09:00'
+timestamp: '2026-11-02T09:45:00+09:00'
 ---
 
 # When to use
@@ -33,6 +33,20 @@ Add a one-shot, executable-scoped path in the existing hook monitor:
 
 A dump from a live stall records every thread at the point of deadlock, spin,
 or invalid traversal even though no exception generated a crash dump.
+
+# Built-in any-game watchdog (2026-11-02)
+
+The temporary pattern above is now permanent for every game: the D3D monitor thread
+(`Framework::check_hang_watchdog`, every 500 ms) tracks a Present heartbeat and an
+engine-tick heartbeat (set in `engine_tick_hook`). If either has started and then stays
+silent for 20 s it logs `[HangDump] Stall detected: present N ms ago, engine tick N ms
+ago` and writes `hang-YYYYMMDD-HHMMSS.dmp` (normal + thread info + unloaded modules) to
+the profile directory; one dump per stall, at most three per session. Because it runs off
+the game thread it also catches game-thread deadlocks that the window-message path cannot.
+Leave a hung game frozen for 20-30 s before closing it. The crash handler is now
+shutdown-safe: after `Framework::~Framework` begins it skips spdlog (whose use caused
+exit-time access violations in TOW2/Avowed/SH2) and only writes `crash.dmp`, which also
+gains thread info and unloaded modules.
 
 # Analysis
 

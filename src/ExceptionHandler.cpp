@@ -12,7 +12,47 @@
 
 #include "ExceptionHandler.hpp"
 
+namespace {
+// MiniDumpNormal plus thread and unloaded-module information, without full memory.
+bool write_crash_dump(struct _EXCEPTION_POINTERS* ei, bool log) {
+    const auto dbghelp = LoadLibrary("dbghelp.dll");
+
+    if (!dbghelp) {
+        if (log) spdlog::error("Exception occurred, but could not load dbghelp.dll");
+        return false;
+    }
+
+    const auto final_path = Framework::get_persistent_dir("crash.dmp").string();
+
+    if (log) spdlog::error("Attempting to write dump to {}", final_path);
+
+    auto f = CreateFile(final_path.c_str(), GENERIC_WRITE, FILE_SHARE_WRITE, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+
+    if (!f || f == INVALID_HANDLE_VALUE) {
+        if (log) spdlog::error("Exception occurred, but could not create dump file");
+        return false;
+    }
+
+    MINIDUMP_EXCEPTION_INFORMATION ei_info{GetCurrentThreadId(), ei, FALSE};
+    auto minidump_write_dump = (decltype(MiniDumpWriteDump)*)GetProcAddress(dbghelp, "MiniDumpWriteDump");
+    const auto type = (MINIDUMP_TYPE)(MiniDumpNormal | MiniDumpWithThreadInfo | MiniDumpWithUnloadedModules);
+
+    if (minidump_write_dump != nullptr) {
+        minidump_write_dump(GetCurrentProcess(), GetCurrentProcessId(), f, type, &ei_info, nullptr, nullptr);
+    }
+
+    CloseHandle(f);
+    return true;
+}
+}
+
 LONG WINAPI framework::global_exception_handler(struct _EXCEPTION_POINTERS* ei) {
+    if (g_logging_unsafe.load()) {
+        // Shutdown: spdlog may be gone (its use here caused secondary crashes at exit).
+        write_crash_dump(ei, false);
+        return EXCEPTION_EXECUTE_HANDLER;
+    }
+
     spdlog::flush_on(spdlog::level::err);
 
     spdlog::error("Exception occurred: {:x}", ei->ExceptionRecord->ExceptionCode);
@@ -55,47 +95,8 @@ LONG WINAPI framework::global_exception_handler(struct _EXCEPTION_POINTERS* ei) 
         spdlog::error("Module: Unknown");
     }
 
-    auto dbghelp = LoadLibrary("dbghelp.dll");
-
-    if (dbghelp) {
-        const auto final_path = Framework::get_persistent_dir("crash.dmp").string();
-
-        spdlog::error("Attempting to write dump to {}", final_path);
-
-        auto f = CreateFile(final_path.c_str(), 
-            GENERIC_WRITE, 
-            FILE_SHARE_WRITE, 
-            nullptr, 
-            CREATE_ALWAYS, 
-            FILE_ATTRIBUTE_NORMAL, 
-            nullptr
-        );
-
-        if (!f || f == INVALID_HANDLE_VALUE) {  
-            spdlog::error("Exception occurred, but could not create dump file");
-            return EXCEPTION_CONTINUE_SEARCH;
-        }
-
-        MINIDUMP_EXCEPTION_INFORMATION ei_info{
-            GetCurrentThreadId(),
-            ei,
-            FALSE
-        };
-
-        auto minidump_write_dump = (decltype(MiniDumpWriteDump)*)GetProcAddress(dbghelp, "MiniDumpWriteDump");
-
-        minidump_write_dump(GetCurrentProcess(), 
-            GetCurrentProcessId(),
-            f,
-            MINIDUMP_TYPE::MiniDumpNormal, 
-            &ei_info, 
-            nullptr, 
-            nullptr
-        );
-
-        CloseHandle(f);
-    } else {
-        spdlog::error("Exception occurred, but could not load dbghelp.dll");
+    if (!write_crash_dump(ei, true)) {
+        return EXCEPTION_CONTINUE_SEARCH;
     }
 
     return EXCEPTION_EXECUTE_HANDLER;

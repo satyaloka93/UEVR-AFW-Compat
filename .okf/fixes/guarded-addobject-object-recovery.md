@@ -106,6 +106,18 @@ Measured: Avowed 6 min, recovery scan adopted 477 objects (was ~475k), no backlo
 attachments and hands immediate. The recovery scan and slot-index liveness stay as a
 safety net. Debug UI shows `Creation hooks: N`.
 
+# Cross-game mode (2026-11-02)
+
+UObjectHook Config "Object creation hooks" (`UObjectHook_CreationHooks`): **Auto**
+(default) uses creation hooks on Avowed/TOW2; on other games it keeps the heuristic
+AddObject hook but, when the validator accepts >= 90% of 256 existing FUObjectArray
+objects, samples its first 512 calls and switches to creation hooks (heuristic left
+installed as a pass-through) if under 5% yield validated objects; rejected pointers are
+never enrolled while sampling. **On** always tries creation hooks first; **Off** is
+heuristic only. SH2 (2026-11-02): heuristic `0x2EAFF60` is the real AddObject (RCX);
+validator 256/256 trusted, sampling 512/512 valid, no switch - Auto is a no-op where
+the heuristic is right. A load hang seen once before this run did not recur.
+
 # Open
 
 Avowed's destructor hook is still the "wrong one, falling back to branch start"

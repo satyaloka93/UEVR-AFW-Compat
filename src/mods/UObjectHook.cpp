@@ -267,7 +267,9 @@ void UObjectHook::hook() {
     // On the guarded games the heuristic AddObject is not object creation at all; hooking
     // it costs time on every call and only rarely sees an object. Prefer the real creation
     // functions and fall back to the heuristic only when they cannot be found.
-    const bool creation_hooked = is_guarded_uobjecthook_game() && hook_creation_functions();
+    const auto creation_mode = m_creation_hooks_mode->value(); // 0 Auto, 1 On, 2 Off
+    const bool want_creation_hooks = creation_mode == 1 || (creation_mode == 0 && is_guarded_uobjecthook_game());
+    const bool creation_hooked = want_creation_hooks && hook_creation_functions();
 
     if (!creation_hooked) {
         auto add_object_fn = sdk::UObjectBase::get_add_object();
@@ -282,6 +284,13 @@ void UObjectHook::hook() {
         if (!m_add_object_hook) {
             SPDLOG_ERROR("[UObjectHook] Failed to hook UObjectBase::AddObject, cannot hook UObjectBase");
             return;
+        }
+
+        // Only judge the heuristic when the validator demonstrably accepts this engine's
+        // existing objects; otherwise a validator mismatch would look like a wrong hook.
+        if (creation_mode == 0 && !is_guarded_uobjecthook_game() && validator_trusted()) {
+            m_heuristic_sampling = true;
+            SPDLOG_INFO("[UObjectHook] Auto creation hooks: sampling {} heuristic AddObject calls", HEURISTIC_SAMPLE_CALLS);
         }
     }
 
@@ -707,6 +716,51 @@ void* UObjectHook::creation_detour(void* rcx, void* rdx, void* r8, void* r9, voi
     hook->on_creation_candidate((sdk::UObjectBase*)rdx);
 
     return result;
+}
+
+// The slot/class-chain validator is only trustworthy where it accepts the engine's
+// already-registered objects; probe a spread of existing FUObjectArray entries.
+bool UObjectHook::validator_trusted() {
+    const auto object_array = sdk::FUObjectArray::get();
+
+    if (object_array == nullptr) {
+        return false;
+    }
+
+    const auto count = object_array->get_object_count();
+    uint32_t checked = 0;
+    uint32_t accepted = 0;
+
+    for (int32_t i = 0; i < count && checked < 256; i += std::max(1, count / 512)) {
+        const auto item = object_array->get_object(i);
+
+        if (item == nullptr || item->object == nullptr) {
+            continue;
+        }
+
+        ++checked;
+        accepted += is_validated_array_backed_uobject(object_array, item->object, this) ? 1 : 0;
+    }
+
+    const bool trusted = checked >= 64 && accepted * 10 >= checked * 9;
+    SPDLOG_INFO("[UObjectHook] Object validator accepted {}/{} existing objects ({})", accepted, checked, trusted ? "trusted" : "not trusted");
+    return trusted;
+}
+
+void UObjectHook::switch_to_creation_hooks() {
+    if (m_creation_hook_count > 0 || m_creation_hooks_auto_switched) {
+        return;
+    }
+
+    if (!hook_creation_functions()) {
+        SPDLOG_WARN("[UObjectHook] Auto creation hooks: heuristic AddObject looks wrong, but creation functions were not found; keeping it");
+        return;
+    }
+
+    // The heuristic hook stays installed (unhooking a live trampoline is unsafe) but only forwards.
+    m_add_object_passthrough = true;
+    m_creation_hooks_auto_switched = true;
+    SPDLOG_WARN("[UObjectHook] Auto creation hooks: switched from heuristic AddObject to {} creation hook(s)", m_creation_hook_count);
 }
 
 // creation_detour forwards rcx, rdx, r8, r9 and four stack slots. An engine upgrade that
@@ -2751,6 +2805,12 @@ void UObjectHook::draw_config() {
     m_enabled_at_startup->draw("Enabled at Startup");
     m_attach_lerp_enabled->draw("Enable Attach Lerp");
     m_attach_lerp_speed->draw("Attach Lerp Speed");
+    m_creation_hooks_mode->draw("Object creation hooks (applies at next start)");
+    ImGui::Text("Creation hooks active: %llu%s", (unsigned long long)m_creation_hook_count,
+        m_creation_hooks_auto_switched ? " (auto-switched)" : "");
+    if (m_heuristic_samples > 0) {
+        ImGui::Text("Heuristic AddObject validated: %u/%u", m_heuristic_valid.load(), m_heuristic_samples.load());
+    }
 
     ImGui::SetNextItemOpen(true, ImGuiCond_::ImGuiCond_Once);
     if (ImGui::TreeNode("UObjectHook Keybinds")) {
@@ -4903,6 +4963,34 @@ void* UObjectHook::add_object(void* rcx, void* rdx, void* r8, void* r9, void* st
             }();
 
             obj = is_rcx ? (sdk::UObjectBase*)rcx : (sdk::UObjectBase*)rdx;
+
+            if (hook->m_add_object_passthrough.load(std::memory_order_relaxed)) {
+                return result; // creation hooks took over
+            }
+
+            if (hook->m_heuristic_sampling.load(std::memory_order_relaxed)) {
+                const bool valid = is_validated_array_backed_uobject(sdk::FUObjectArray::get(), obj, hook.get());
+                const auto samples = hook->m_heuristic_samples.fetch_add(1, std::memory_order_relaxed) + 1;
+
+                if (valid) {
+                    hook->m_heuristic_valid.fetch_add(1, std::memory_order_relaxed);
+                }
+
+                if (samples == HEURISTIC_SAMPLE_CALLS) {
+                    hook->m_heuristic_sampling = false;
+                    const auto valid_count = hook->m_heuristic_valid.load(std::memory_order_relaxed);
+                    SPDLOG_INFO("[UObjectHook] Auto creation hooks: heuristic AddObject yielded {}/{} validated objects", valid_count, samples);
+
+                    if (valid_count * 20 < samples) { // under 5%: this is not object creation
+                        GameThreadWorker::get().enqueue([]() { UObjectHook::get()->switch_to_creation_hooks(); });
+                    }
+                }
+
+                // The validator is trusted on this engine, so never enroll a rejected pointer.
+                if (!valid) {
+                    return result;
+                }
+            }
         }
 
         ++hook->m_debug.constructor_calls;
